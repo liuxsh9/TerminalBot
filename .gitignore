@@ -24,5 +24,8 @@ dist/
 # Claude Code
 .claude/
 
+# OpenSpec artifacts
+openspec/
+
 # Test artifacts
 cc_test/

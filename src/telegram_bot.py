@@ -30,6 +30,7 @@ SPECIAL_KEYS = {
     "left": "Left",
     "right": "Right",
     "enter": "Enter",
+    "backspace": "BSpace",
     "ctrl_c": "C-c",
     "ctrl_cc": "C-c",  # Double ctrl+c (handled specially)
     "tab": "Tab",
@@ -149,10 +150,11 @@ class TelegramBot:
             return None
 
         try:
+            auto_enter = self._bridge.get_auto_enter(chat_id)
             msg = await self._application.bot.send_message(
                 chat_id=chat_id,
-                text="Control Keys:",
-                reply_markup=self._get_keys_keyboard(),
+                text="ㅤ",
+                reply_markup=self._get_keys_keyboard(auto_enter),
             )
             return msg.message_id
         except Exception as e:
@@ -178,14 +180,19 @@ class TelegramBot:
             return
 
         await update.message.reply_text(
-            "Welcome to CCBot! 🖥️\n\n"
-            "Control your terminal sessions from Telegram.\n\n"
-            "Commands:\n"
-            "/list - Show available tmux sessions\n"
-            "/connect <session:window.pane> - Connect to a pane\n"
-            "/disconnect - Disconnect from current session\n"
-            "/help - Show this help message\n\n"
-            "Once connected, send any text to forward it to the terminal."
+            "Welcome to CCBot!\n\n"
+            "Control your tmux terminal sessions remotely from Telegram.\n\n"
+            "Features:\n"
+            "- Real-time terminal output streaming\n"
+            "- Send text input to terminal\n"
+            "- Control keys (arrows, Tab, Esc, Ctrl+C, etc.)\n"
+            "- Auto/Wait input modes\n\n"
+            "Quick Start:\n"
+            "1. /list - View available tmux sessions\n"
+            "2. /connect - Select a pane to connect\n"
+            "3. Send messages to input to terminal\n"
+            "4. /keys - Show control keys panel\n\n"
+            "Use /help for detailed usage."
         )
 
     async def cmd_help(
@@ -200,16 +207,17 @@ class TelegramBot:
 
         await update.message.reply_text(
             "CCBot Commands:\n\n"
-            "/list - List all available tmux sessions and panes\n"
-            "/connect <id> - Connect to a tmux pane\n"
-            "  Example: /connect main:0.0\n"
-            "/disconnect - Disconnect from current session\n"
+            "/list - List available tmux panes\n"
+            "/connect - Connect to a pane (shows selection)\n"
+            "/disconnect - Disconnect from session\n"
+            "/keys - Show control keys panel\n"
             "/help - Show this help\n\n"
-            "Usage:\n"
-            "1. Use /list to see available sessions\n"
-            "2. Use /connect to attach to a pane\n"
-            "3. Send text messages to input to the terminal\n"
-            "4. Receive terminal output automatically"
+            "Control Keys:\n"
+            "Arrow keys, Tab, Shift+Tab, Esc, Backspace, Enter, Ctrl+C\n\n"
+            "Input Modes:\n"
+            "- Auto: Messages sent with Enter automatically\n"
+            "- Wait: Messages sent without Enter (press Enter manually)\n\n"
+            "Tip: Unknown /commands are forwarded to terminal when connected."
         )
 
     async def cmd_list(
@@ -370,14 +378,17 @@ class TelegramBot:
             parse_mode="Markdown"
         )
 
-    def _get_keys_keyboard(self) -> InlineKeyboardMarkup:
+    def _get_keys_keyboard(self, auto_enter: bool = True) -> InlineKeyboardMarkup:
         """Create inline keyboard for control keys."""
+        mode_label = "Auto" if auto_enter else "Wait"
+
         keyboard = [
             [
                 InlineKeyboardButton("⬅️", callback_data="key:left"),
                 InlineKeyboardButton("⬆️", callback_data="key:up"),
                 InlineKeyboardButton("⬇️", callback_data="key:down"),
                 InlineKeyboardButton("➡️", callback_data="key:right"),
+                InlineKeyboardButton("⌫", callback_data="key:backspace"),
                 InlineKeyboardButton("⏎", callback_data="key:enter"),
             ],
             [
@@ -386,6 +397,7 @@ class TelegramBot:
                 InlineKeyboardButton("Esc", callback_data="key:esc"),
                 InlineKeyboardButton("^C", callback_data="key:ctrl_c"),
                 InlineKeyboardButton("^C^C", callback_data="key:ctrl_cc"),
+                InlineKeyboardButton(mode_label, callback_data="key:toggle_mode"),
             ],
         ]
         return InlineKeyboardMarkup(keyboard)
@@ -411,9 +423,10 @@ class TelegramBot:
         # Invalidate terminal message so next update creates new one above keys
         self._bridge.invalidate_terminal_message(chat_id)
 
+        auto_enter = self._bridge.get_auto_enter(chat_id)
         msg = await update.message.reply_text(
-            "Control Keys:",
-            reply_markup=self._get_keys_keyboard()
+            "ㅤ",
+            reply_markup=self._get_keys_keyboard(auto_enter)
         )
         # Store keys message ID
         self._bridge.set_keys_message_id(chat_id, msg.message_id)
@@ -441,6 +454,15 @@ class TelegramBot:
         # Extract key from callback_data (format: "key:up")
         key_name = query.data.split(":", 1)[1]
 
+        # Handle mode toggle
+        if key_name == "toggle_mode":
+            new_mode = self._bridge.toggle_auto_enter(chat_id)
+            await query.edit_message_text(
+                "ㅤ",
+                reply_markup=self._get_keys_keyboard(new_mode)
+            )
+            return
+
         # Handle double Ctrl+C specially
         if key_name == "ctrl_cc":
             success = (
@@ -454,6 +476,32 @@ class TelegramBot:
         if not success:
             await query.edit_message_text(
                 "❌ Failed to send key. Session may have closed."
+            )
+
+    async def handle_unknown_command(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle unknown commands - forward to connected terminal."""
+        user_id = update.effective_user.id
+        chat_id = update.effective_chat.id
+
+        if not self._is_authorized(user_id):
+            return
+
+        if not self._bridge.is_connected(chat_id):
+            await update.message.reply_text(
+                "Unknown command. Use /help to see available commands.\n"
+                "Or /connect to a session first to forward commands to terminal."
+            )
+            return
+
+        # Forward the command (including the /) to the terminal
+        self._bridge.invalidate_terminal_message(chat_id)
+
+        text = update.message.text
+        if not self._bridge.send_input(chat_id, text):
+            await update.message.reply_text(
+                "❌ Failed to send command. Session may have closed."
             )
 
     async def handle_text(
@@ -528,9 +576,15 @@ def create_bot(
         CallbackQueryHandler(bot.callback_key, pattern=r"^key:")
     )
 
-    # Text message handler (must be last)
+    # Text message handler
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, bot.handle_text)
+    )
+
+    # Unknown command handler - forward to terminal (e.g., /openspec)
+    # Must be last to catch commands not handled above
+    application.add_handler(
+        MessageHandler(filters.COMMAND, bot.handle_unknown_command)
     )
 
     return application

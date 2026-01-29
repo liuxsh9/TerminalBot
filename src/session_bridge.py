@@ -28,6 +28,8 @@ class Connection:
     last_content_hash: str = ""
     # Control keys message (should always be below terminal)
     keys_message_id: Optional[int] = None
+    # Input mode: True = auto enter, False = manual enter (Wait)
+    auto_enter: bool = True
 
 
 class SessionBridge:
@@ -172,7 +174,35 @@ class SessionBridge:
         if conn is None:
             return False
 
-        return self._terminal.send_keys(conn.pane_identifier, text, enter=True)
+        return self._terminal.send_keys(conn.pane_identifier, text, enter=conn.auto_enter)
+
+    def toggle_auto_enter(self, chat_id: int) -> bool:
+        """Toggle auto-enter mode for a connection.
+
+        Args:
+            chat_id: Telegram chat ID
+
+        Returns:
+            New auto_enter state (True = auto, False = manual)
+        """
+        conn = self._connections.get(chat_id)
+        if conn is None:
+            return False
+
+        conn.auto_enter = not conn.auto_enter
+        return conn.auto_enter
+
+    def get_auto_enter(self, chat_id: int) -> bool:
+        """Get current auto-enter mode.
+
+        Args:
+            chat_id: Telegram chat ID
+
+        Returns:
+            Current auto_enter state
+        """
+        conn = self._connections.get(chat_id)
+        return conn.auto_enter if conn else False
 
     def send_special_key(self, chat_id: int, key: str) -> bool:
         """Send a special key (like Up, Down, C-c) to the connected pane.
@@ -336,6 +366,11 @@ def format_terminal_window(content: str, max_lines: int = 30) -> str:
 
     # Remove carriage returns
     content = re.sub(r'\r+', '', content)
+
+    # Compress long horizontal lines (─, ━, ═, -, =, etc.)
+    content = re.sub(r'[─━═]{20,}', '────────────────────', content)
+    content = re.sub(r'[-]{20,}', '--------------------', content)
+    content = re.sub(r'[=]{20,}', '====================', content)
 
     # Split into lines and get last N non-empty lines
     lines = content.split('\n')
