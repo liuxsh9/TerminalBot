@@ -69,14 +69,15 @@ Then in Telegram:
 
 | Command | Description |
 |---------|-------------|
-| `/start` | Welcome message and quick start |
-| `/help` | Show detailed help |
 | `/new [name]` | Create new tmux session and connect |
 | `/list` | List available tmux panes |
 | `/connect` | Connect to a pane (interactive) |
-| `/disconnect` | Disconnect from session |
-| `/keys` | Show control keys panel |
 | `/resize <width>` | Set terminal width (e.g., `/resize 60`) |
+| `/refresh` | Refresh terminal display |
+| `/disconnect` | Disconnect from session |
+| `/start` | Welcome message |
+| `/keys` | Show control keys panel |
+| `/help` | Show detailed help |
 
 ## Control Keys
 

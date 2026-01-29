@@ -32,6 +32,10 @@ def load_config() -> dict:
             if user_id:
                 authorized_users.add(int(user_id))
 
+    if not authorized_users:
+        logger.error("AUTHORIZED_USERS not set - refusing to start for security reasons")
+        sys.exit(1)
+
     poll_interval = float(os.getenv("POLL_INTERVAL", "1"))
 
     return {

@@ -15,13 +15,13 @@ from telegram.ext import (
 
 # Bot commands for the menu
 BOT_COMMANDS = [
-    BotCommand("start", "Start the bot"),
-    BotCommand("connect", "Connect to a tmux pane"),
-    BotCommand("disconnect", "Disconnect from current session"),
-    BotCommand("refresh", "Refresh terminal display"),
-    BotCommand("list", "List available tmux sessions"),
     BotCommand("new", "Create new tmux session"),
+    BotCommand("list", "List available tmux sessions"),
+    BotCommand("connect", "Connect to a tmux pane"),
     BotCommand("resize", "Set terminal width"),
+    BotCommand("refresh", "Refresh terminal display"),
+    BotCommand("disconnect", "Disconnect from current session"),
+    BotCommand("start", "Start the bot"),
     BotCommand("keys", "Show control keys panel"),
     BotCommand("help", "Show help message"),
 ]
@@ -113,8 +113,7 @@ class TelegramBot:
             return msg.message_id
         except Exception as e:
             # Log but don't crash
-            import logging
-            logging.getLogger(__name__).error(f"Error sending message: {e}")
+            logger.error(f"Error sending message: {e}")
             return None
 
     async def _delete_message(self, chat_id: int, message_id: int) -> bool:
@@ -184,14 +183,9 @@ class TelegramBot:
 
         await update.message.reply_text(
             "Welcome to TerminalBot!\n\n"
-            "Control your tmux sessions remotely from your phone.\n\n"
-            "Quick Start:\n"
-            "1. /new - Create a new tmux session\n"
-            "2. /connect - Or connect to existing session\n"
-            "3. Send text to input to terminal\n"
-            "4. /keys - Show control keys\n"
-            "5. /resize 60 - Optimize for mobile\n\n"
-            "Use /help for more details."
+            "Control tmux sessions from your phone.\n\n"
+            "/new - Create a new session\n"
+            "/connect - Connect to existing session"
         )
 
     async def cmd_help(

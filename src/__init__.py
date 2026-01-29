@@ -1,1 +1,1 @@
-"""CCBot - Telegram bot for controlling terminal/tmux sessions remotely."""
+"""TerminalBot - Telegram bot for controlling terminal/tmux sessions remotely."""
