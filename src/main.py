@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CCBot - Telegram bot for controlling terminal/tmux sessions remotely."""
+"""TerminalBot - Telegram bot for controlling terminal/tmux sessions remotely."""
 
 import asyncio
 import logging
@@ -59,7 +59,7 @@ async def run_bot(config: dict) -> None:
         session_bridge=session_bridge,
     )
 
-    logger.info("Starting CCBot...")
+    logger.info("Starting TerminalBot...")
     await application.initialize()
 
     # Set bot commands for menu
@@ -85,7 +85,7 @@ async def run_bot(config: dict) -> None:
     except asyncio.CancelledError:
         pass
     finally:
-        logger.info("Shutting down CCBot...")
+        logger.info("Shutting down TerminalBot...")
         await session_bridge.stop_all()
         await application.updater.stop()
         await application.stop()

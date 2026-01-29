@@ -21,6 +21,8 @@ BOT_COMMANDS = [
     BotCommand("connect", "Connect to a tmux pane"),
     BotCommand("disconnect", "Disconnect from current session"),
     BotCommand("keys", "Show control keys panel"),
+    BotCommand("resize", "Resize pane width (e.g., /resize 70)"),
+    BotCommand("new", "Create new tmux session"),
 ]
 
 # Special keys mapping for tmux
@@ -180,19 +182,15 @@ class TelegramBot:
             return
 
         await update.message.reply_text(
-            "Welcome to CCBot!\n\n"
-            "Control your tmux terminal sessions remotely from Telegram.\n\n"
-            "Features:\n"
-            "- Real-time terminal output streaming\n"
-            "- Send text input to terminal\n"
-            "- Control keys (arrows, Tab, Esc, Ctrl+C, etc.)\n"
-            "- Auto/Wait input modes\n\n"
+            "Welcome to TerminalBot!\n\n"
+            "Control your tmux sessions remotely from your phone.\n\n"
             "Quick Start:\n"
-            "1. /list - View available tmux sessions\n"
-            "2. /connect - Select a pane to connect\n"
-            "3. Send messages to input to terminal\n"
-            "4. /keys - Show control keys panel\n\n"
-            "Use /help for detailed usage."
+            "1. /new - Create a new tmux session\n"
+            "2. /connect - Or connect to existing session\n"
+            "3. Send text to input to terminal\n"
+            "4. /keys - Show control keys\n"
+            "5. /resize 60 - Optimize for mobile\n\n"
+            "Use /help for more details."
         )
 
     async def cmd_help(
@@ -206,7 +204,7 @@ class TelegramBot:
             return
 
         await update.message.reply_text(
-            "CCBot Commands:\n\n"
+            "TerminalBot Commands:\n\n"
             "/list - List available tmux panes\n"
             "/connect - Connect to a pane (shows selection)\n"
             "/disconnect - Disconnect from session\n"
@@ -384,19 +382,21 @@ class TelegramBot:
 
         keyboard = [
             [
-                InlineKeyboardButton("⬅️", callback_data="key:left"),
+                InlineKeyboardButton("Esc", callback_data="key:esc"),
                 InlineKeyboardButton("⬆️", callback_data="key:up"),
-                InlineKeyboardButton("⬇️", callback_data="key:down"),
-                InlineKeyboardButton("➡️", callback_data="key:right"),
                 InlineKeyboardButton("⌫", callback_data="key:backspace"),
                 InlineKeyboardButton("⏎", callback_data="key:enter"),
             ],
             [
+                InlineKeyboardButton("⬅️", callback_data="key:left"),
+                InlineKeyboardButton("⬇️", callback_data="key:down"),
+                InlineKeyboardButton("➡️", callback_data="key:right"),
                 InlineKeyboardButton("Tab", callback_data="key:tab"),
-                InlineKeyboardButton("⇧Tab", callback_data="key:shift_tab"),
-                InlineKeyboardButton("Esc", callback_data="key:esc"),
+            ],
+            [
                 InlineKeyboardButton("^C", callback_data="key:ctrl_c"),
                 InlineKeyboardButton("^C^C", callback_data="key:ctrl_cc"),
+                InlineKeyboardButton("⇧Tab", callback_data="key:shift_tab"),
                 InlineKeyboardButton(mode_label, callback_data="key:toggle_mode"),
             ],
         ]
@@ -430,6 +430,152 @@ class TelegramBot:
         )
         # Store keys message ID
         self._bridge.set_keys_message_id(chat_id, msg.message_id)
+
+    async def cmd_resize(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle /resize command - resize connected pane width."""
+        user_id = update.effective_user.id
+        chat_id = update.effective_chat.id
+
+        if not self._is_authorized(user_id):
+            await update.message.reply_text("Unauthorized. Access denied.")
+            return
+
+        if not self._bridge.is_connected(chat_id):
+            await update.message.reply_text(
+                "Not connected to any session.\n"
+                "Use /connect first."
+            )
+            return
+
+        # If argument provided, use it directly
+        if context.args:
+            try:
+                width = int(context.args[0])
+                if width < 20 or width > 500:
+                    await update.message.reply_text(
+                        "Width must be between 20 and 500."
+                    )
+                    return
+                await self._do_resize(chat_id, width, update.message.reply_text)
+                return
+            except ValueError:
+                await update.message.reply_text(
+                    "Invalid width. Please provide a number."
+                )
+                return
+
+        # Show inline keyboard with preset options
+        keyboard = [
+            [
+                InlineKeyboardButton("30", callback_data="resize:30"),
+                InlineKeyboardButton("60", callback_data="resize:60"),
+                InlineKeyboardButton("80", callback_data="resize:80"),
+            ],
+            [
+                InlineKeyboardButton("90", callback_data="resize:90"),
+                InlineKeyboardButton("120", callback_data="resize:120"),
+                InlineKeyboardButton("Reset", callback_data="resize:reset"),
+            ],
+        ]
+        await update.message.reply_text(
+            "Select terminal width:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    async def _do_resize(self, chat_id: int, width: int, reply_func) -> None:
+        """Perform the actual resize."""
+        pane_id = self._bridge.get_connection(chat_id)
+        if self._bridge._terminal.set_terminal_width(pane_id, width):
+            await reply_func(f"✅ Terminal width set to {width} columns")
+        else:
+            await reply_func("❌ Failed to set terminal width.")
+
+    async def callback_resize(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle inline keyboard callback for resize."""
+        query = update.callback_query
+        await query.answer()
+
+        user_id = update.effective_user.id
+        chat_id = update.effective_chat.id
+
+        if not self._is_authorized(user_id):
+            return
+
+        if not self._bridge.is_connected(chat_id):
+            await query.edit_message_text(
+                "Not connected to any session.\n"
+                "Use /connect first."
+            )
+            return
+
+        # Extract width from callback_data (format: "resize:60" or "resize:reset")
+        value = query.data.split(":", 1)[1]
+
+        if value == "reset":
+            # Reset by getting actual terminal size
+            pane_id = self._bridge.get_connection(chat_id)
+            if self._bridge._terminal.reset_terminal_width(pane_id):
+                await query.edit_message_text("✅ Terminal width reset")
+            else:
+                await query.edit_message_text("❌ Failed to reset terminal width.")
+        else:
+            width = int(value)
+            pane_id = self._bridge.get_connection(chat_id)
+            if self._bridge._terminal.set_terminal_width(pane_id, width):
+                await query.edit_message_text(f"✅ Terminal width set to {width} columns")
+            else:
+                await query.edit_message_text("❌ Failed to set terminal width.")
+
+    async def cmd_new(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle /new command - create new tmux session."""
+        user_id = update.effective_user.id
+        chat_id = update.effective_chat.id
+
+        if not self._is_authorized(user_id):
+            await update.message.reply_text("Unauthorized. Access denied.")
+            return
+
+        # Check if already connected
+        current = self._bridge.get_connection(chat_id)
+        if current:
+            await update.message.reply_text(
+                f"Already connected to `{current}`.\n"
+                "Use /disconnect first.",
+                parse_mode="Markdown"
+            )
+            return
+
+        # Get session name from args or generate one
+        session_name = context.args[0] if context.args else None
+
+        result = self._bridge._terminal.create_session(session_name)
+        if result:
+            session_name, pane_id = result
+            # Auto-connect to the new session
+            if self._bridge.connect(chat_id, pane_id):
+                await update.message.reply_text(
+                    f"✅ Created and connected to `{pane_id}`\n\n"
+                    "Terminal output will be streamed here.\n"
+                    "Send text to input to the terminal.",
+                    parse_mode="Markdown"
+                )
+            else:
+                await update.message.reply_text(
+                    f"✅ Created session `{session_name}`\n"
+                    f"Use `/connect {pane_id}` to connect.",
+                    parse_mode="Markdown"
+                )
+        else:
+            await update.message.reply_text(
+                "❌ Failed to create tmux session.\n"
+                "Make sure tmux is installed and running."
+            )
 
     async def callback_key(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -567,6 +713,8 @@ def create_bot(
     application.add_handler(CommandHandler("connect", bot.cmd_connect))
     application.add_handler(CommandHandler("disconnect", bot.cmd_disconnect))
     application.add_handler(CommandHandler("keys", bot.cmd_keys))
+    application.add_handler(CommandHandler("resize", bot.cmd_resize))
+    application.add_handler(CommandHandler("new", bot.cmd_new))
 
     # Callback handlers for inline keyboard
     application.add_handler(
@@ -574,6 +722,9 @@ def create_bot(
     )
     application.add_handler(
         CallbackQueryHandler(bot.callback_key, pattern=r"^key:")
+    )
+    application.add_handler(
+        CallbackQueryHandler(bot.callback_resize, pattern=r"^resize:")
     )
 
     # Text message handler

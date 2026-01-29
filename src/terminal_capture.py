@@ -206,3 +206,103 @@ class TerminalCapture:
     def pane_exists(self, identifier: str) -> bool:
         """Check if a pane still exists."""
         return self.get_pane(identifier) is not None
+
+    def resize_pane(self, identifier: str, width: int) -> bool:
+        """Resize a pane to specified width.
+
+        Args:
+            identifier: Pane identifier in format "session:window.pane"
+            width: Target width in columns
+
+        Returns:
+            True if successful, False otherwise.
+        """
+        pane = self.get_pane(identifier)
+        if pane is None:
+            logger.error(f"Pane not found: {identifier}")
+            return False
+
+        try:
+            pane.resize(width=width)
+            return True
+        except libtmux.exc.LibTmuxException as e:
+            logger.error(f"Error resizing pane {identifier}: {e}")
+            return False
+
+    def set_terminal_width(self, identifier: str, width: int) -> bool:
+        """Set terminal width using stty (works for running programs).
+
+        This sends a stty command to change the terminal's column setting,
+        which triggers SIGWINCH and makes programs like Claude Code
+        re-detect the terminal width.
+
+        Args:
+            identifier: Pane identifier in format "session:window.pane"
+            width: Target width in columns
+
+        Returns:
+            True if successful, False otherwise.
+        """
+        pane = self.get_pane(identifier)
+        if pane is None:
+            logger.error(f"Pane not found: {identifier}")
+            return False
+
+        try:
+            # Send stty command to set columns
+            pane.send_keys(f"stty columns {width}", enter=True)
+            return True
+        except libtmux.exc.LibTmuxException as e:
+            logger.error(f"Error setting terminal width for {identifier}: {e}")
+            return False
+
+    def reset_terminal_width(self, identifier: str) -> bool:
+        """Reset terminal width to match actual pane size.
+
+        Args:
+            identifier: Pane identifier in format "session:window.pane"
+
+        Returns:
+            True if successful, False otherwise.
+        """
+        pane = self.get_pane(identifier)
+        if pane is None:
+            logger.error(f"Pane not found: {identifier}")
+            return False
+
+        try:
+            # Use resize command to reset stty to actual pane size
+            pane.send_keys("eval $(resize)", enter=True)
+            return True
+        except libtmux.exc.LibTmuxException as e:
+            logger.error(f"Error resetting terminal width for {identifier}: {e}")
+            return False
+
+    def create_session(self, name: Optional[str] = None) -> Optional[tuple[str, str]]:
+        """Create a new tmux session.
+
+        Args:
+            name: Optional session name. If not provided, tmux will auto-generate.
+
+        Returns:
+            Tuple of (session_name, pane_identifier) if successful, None otherwise.
+        """
+        server = self._get_server()
+        if server is None:
+            # Try to start a new server
+            try:
+                server = libtmux.Server()
+                self._server = server
+            except libtmux.exc.LibTmuxException as e:
+                logger.error(f"Error creating tmux server: {e}")
+                return None
+
+        try:
+            session = server.new_session(session_name=name)
+            window = session.active_window
+            pane = window.active_pane
+            pane_id = f"{session.name}:{window.index}.{pane.index}"
+            return (session.name, pane_id)
+        except libtmux.exc.LibTmuxException as e:
+            logger.error(f"Error creating session: {e}")
+            return None

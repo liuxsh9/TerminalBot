@@ -1,14 +1,15 @@
-# CCBot
+# TerminalBot
 
-Control your tmux terminal sessions remotely via Telegram.
+Control your tmux terminal sessions remotely via Telegram. Perfect for monitoring long-running tasks, managing servers, or using CLI tools like Claude Code from your phone.
 
 ## Features
 
-- **Real-time Output** - Stream terminal output to your phone
+- **Real-time Output** - Stream terminal output to Telegram
 - **Text Input** - Send commands and text to terminal
 - **Control Keys** - Arrow keys, Tab, Esc, Ctrl+C, Backspace, Enter
 - **Input Modes** - Auto (with Enter) or Wait (manual Enter)
-- **Session Selection** - Interactive pane picker via inline keyboard
+- **Mobile Friendly** - Resize terminal width for phone screens
+- **Session Management** - Create new sessions or connect to existing ones
 - **User Authentication** - Whitelist-based access control
 
 ## Requirements
@@ -20,13 +21,16 @@ Control your tmux terminal sessions remotely via Telegram.
 ## Installation
 
 ```bash
-git clone https://github.com/user/CCBot.git
-cd CCBot
+git clone https://github.com/user/TerminalBot.git
+cd TerminalBot
 
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .
+# Install uv (if not already installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
+# Install dependencies
+uv sync
+
+# Configure
 cp .env.example .env
 # Edit .env with your settings
 ```
@@ -49,23 +53,17 @@ POLL_INTERVAL=1
 
 ## Usage
 
-1. **Start a tmux session:**
-   ```bash
-   tmux new -s dev
-   ```
+```bash
+uv run terminalbot
+```
 
-2. **Run CCBot:**
-   ```bash
-   source .venv/bin/activate
-   python -m src.main
-   ```
+Then in Telegram:
 
-3. **In Telegram, message your bot:**
-   - `/start` - Welcome and quick start guide
-   - `/list` - Show available tmux panes
-   - `/connect` - Select a pane to connect
-   - `/keys` - Show control keys panel
-   - `/disconnect` - Disconnect from session
+1. `/new` - Create a new tmux session
+2. `/connect` - Or connect to an existing session
+3. Send text to input to terminal
+4. `/keys` - Show control keys panel
+5. `/resize 60` - Optimize width for mobile
 
 ## Bot Commands
 
@@ -73,45 +71,46 @@ POLL_INTERVAL=1
 |---------|-------------|
 | `/start` | Welcome message and quick start |
 | `/help` | Show detailed help |
+| `/new [name]` | Create new tmux session and connect |
 | `/list` | List available tmux panes |
 | `/connect` | Connect to a pane (interactive) |
 | `/disconnect` | Disconnect from session |
 | `/keys` | Show control keys panel |
+| `/resize <width>` | Set terminal width (e.g., `/resize 60`) |
 
 ## Control Keys
 
-The `/keys` command shows an inline keyboard with:
+The `/keys` command shows an inline keyboard:
 
-| Key | Function |
-|-----|----------|
-| ⬅️⬆️⬇️➡️ | Arrow keys |
-| ⌫ | Backspace |
-| ⏎ | Enter |
-| Tab | Tab |
-| ⇧Tab | Shift+Tab |
-| Esc | Escape |
-| ^C | Ctrl+C |
-| ^C^C | Double Ctrl+C |
-| Auto/Wait | Toggle input mode |
+```
+[Esc] [⬆️] [⌫]  [⏎]
+[⬅️]  [⬇️] [➡️] [Tab]
+[^C] [^C^C] [⇧Tab] [Auto]
+```
+
+## Resize Options
+
+The `/resize` command shows preset width options:
+
+```
+[30] [60] [80]
+[90] [120] [Reset]
+```
+
+Or use directly: `/resize 70`
 
 ## Input Modes
 
-- **Auto** (default): Messages are sent with Enter automatically
-- **Wait**: Messages are sent without Enter - press ⏎ manually
+- **Auto** (default): Messages sent with Enter automatically
+- **Wait**: Messages sent without Enter - press ⏎ manually
 
-Toggle between modes using the Auto/Wait button in the control keys panel.
-
-## Pane Identifier Format
-
-Panes are identified as `session:window.pane`:
-- `dev:0.0` - Session "dev", window 0, pane 0
-- `main:1.2` - Session "main", window 1, pane 2
+Toggle using the Auto/Wait button in the control keys panel.
 
 ## Tips
 
-- Unknown `/commands` are forwarded to terminal when connected (e.g., `/help` in CLI apps)
-- Use Wait mode for multi-line input or when you need precise control
-- The terminal window shows the last 30 lines of output
+- Use `/resize 60` for comfortable mobile viewing
+- Unknown `/commands` are forwarded to terminal when connected
+- Use Wait mode for multi-line input or precise control
 
 ## License
 
