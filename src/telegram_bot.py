@@ -1,7 +1,7 @@
 """Telegram bot module for CCBot."""
 
 import logging
-from typing import Set
+from typing import Optional, Set
 
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
@@ -31,9 +31,9 @@ SPECIAL_KEYS = {
     "right": "Right",
     "enter": "Enter",
     "ctrl_c": "C-c",
-    "ctrl_d": "C-d",
-    "ctrl_z": "C-z",
+    "ctrl_cc": "C-c",  # Double ctrl+c (handled specially)
     "tab": "Tab",
+    "shift_tab": "BTab",  # Shift+Tab in tmux
     "esc": "Escape",
 }
 
@@ -55,6 +55,8 @@ class TelegramBot:
 
         # Set up callbacks
         self._bridge.set_output_callback(self._send_output)
+        self._bridge.set_delete_callback(self._delete_message)
+        self._bridge.set_keys_callback(self._send_keys_panel)
         self._bridge.set_disconnect_callback(self._notify_disconnect)
 
         self._application: Application = None
@@ -69,14 +71,93 @@ class TelegramBot:
             return True  # No whitelist = allow all
         return user_id in self._authorized_users
 
-    async def _send_output(self, chat_id: int, message: str) -> None:
-        """Send output message to a chat."""
-        if self._application:
-            await self._application.bot.send_message(
+    async def _send_output(self, chat_id: int, message: str, edit_message_id: int = None) -> int:
+        """Send or edit output message to a chat.
+
+        Args:
+            chat_id: Telegram chat ID
+            message: Message text
+            edit_message_id: If provided, edit this message instead of sending new
+
+        Returns:
+            Message ID of sent/edited message
+        """
+        if not self._application:
+            return None
+
+        try:
+            if edit_message_id:
+                # Try to edit existing message
+                try:
+                    msg = await self._application.bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=edit_message_id,
+                        text=message,
+                        parse_mode="Markdown",
+                    )
+                    return msg.message_id
+                except Exception as e:
+                    # If edit fails (message too old, etc.), send new
+                    pass
+
+            # Send new message
+            msg = await self._application.bot.send_message(
                 chat_id=chat_id,
                 text=message,
                 parse_mode="Markdown",
             )
+            return msg.message_id
+        except Exception as e:
+            # Log but don't crash
+            import logging
+            logging.getLogger(__name__).error(f"Error sending message: {e}")
+            return None
+
+    async def _delete_message(self, chat_id: int, message_id: int) -> bool:
+        """Delete a message.
+
+        Args:
+            chat_id: Telegram chat ID
+            message_id: Message ID to delete
+
+        Returns:
+            True if deleted successfully
+        """
+        if not self._application:
+            return False
+
+        try:
+            await self._application.bot.delete_message(
+                chat_id=chat_id,
+                message_id=message_id,
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting message: {e}")
+            return False
+
+    async def _send_keys_panel(self, chat_id: int) -> Optional[int]:
+        """Send control keys panel.
+
+        Args:
+            chat_id: Telegram chat ID
+
+        Returns:
+            Message ID of sent message
+        """
+        if not self._application:
+            return None
+
+        try:
+            msg = await self._application.bot.send_message(
+                chat_id=chat_id,
+                text="Control Keys:",
+                reply_markup=self._get_keys_keyboard(),
+            )
+            return msg.message_id
+        except Exception as e:
+            logger.error(f"Error sending keys panel: {e}")
+            return None
 
     async def _notify_disconnect(self, chat_id: int, reason: str) -> None:
         """Notify user of disconnection."""
@@ -293,24 +374,18 @@ class TelegramBot:
         """Create inline keyboard for control keys."""
         keyboard = [
             [
-                InlineKeyboardButton("⬆️", callback_data="key:up"),
-            ],
-            [
                 InlineKeyboardButton("⬅️", callback_data="key:left"),
-                InlineKeyboardButton("⏎", callback_data="key:enter"),
-                InlineKeyboardButton("➡️", callback_data="key:right"),
-            ],
-            [
+                InlineKeyboardButton("⬆️", callback_data="key:up"),
                 InlineKeyboardButton("⬇️", callback_data="key:down"),
+                InlineKeyboardButton("➡️", callback_data="key:right"),
+                InlineKeyboardButton("⏎", callback_data="key:enter"),
             ],
             [
                 InlineKeyboardButton("Tab", callback_data="key:tab"),
+                InlineKeyboardButton("⇧Tab", callback_data="key:shift_tab"),
                 InlineKeyboardButton("Esc", callback_data="key:esc"),
-            ],
-            [
-                InlineKeyboardButton("Ctrl+C", callback_data="key:ctrl_c"),
-                InlineKeyboardButton("Ctrl+D", callback_data="key:ctrl_d"),
-                InlineKeyboardButton("Ctrl+Z", callback_data="key:ctrl_z"),
+                InlineKeyboardButton("^C", callback_data="key:ctrl_c"),
+                InlineKeyboardButton("^C^C", callback_data="key:ctrl_cc"),
             ],
         ]
         return InlineKeyboardMarkup(keyboard)
@@ -333,10 +408,15 @@ class TelegramBot:
             )
             return
 
-        await update.message.reply_text(
+        # Invalidate terminal message so next update creates new one above keys
+        self._bridge.invalidate_terminal_message(chat_id)
+
+        msg = await update.message.reply_text(
             "Control Keys:",
             reply_markup=self._get_keys_keyboard()
         )
+        # Store keys message ID
+        self._bridge.set_keys_message_id(chat_id, msg.message_id)
 
     async def callback_key(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -360,12 +440,18 @@ class TelegramBot:
 
         # Extract key from callback_data (format: "key:up")
         key_name = query.data.split(":", 1)[1]
-        tmux_key = SPECIAL_KEYS.get(key_name)
 
-        if tmux_key and self._bridge.send_special_key(chat_id, tmux_key):
-            # Keep the keyboard visible, just acknowledge
-            pass
+        # Handle double Ctrl+C specially
+        if key_name == "ctrl_cc":
+            success = (
+                self._bridge.send_special_key(chat_id, "C-c") and
+                self._bridge.send_special_key(chat_id, "C-c")
+            )
         else:
+            tmux_key = SPECIAL_KEYS.get(key_name)
+            success = tmux_key and self._bridge.send_special_key(chat_id, tmux_key)
+
+        if not success:
             await query.edit_message_text(
                 "❌ Failed to send key. Session may have closed."
             )
@@ -387,12 +473,11 @@ class TelegramBot:
             )
             return
 
+        # Invalidate terminal message so next update creates new one below user's message
+        self._bridge.invalidate_terminal_message(chat_id)
+
         text = update.message.text
-        if self._bridge.send_input(chat_id, text):
-            # Optionally confirm input was sent
-            # await update.message.reply_text(f"→ {text}")
-            pass
-        else:
+        if not self._bridge.send_input(chat_id, text):
             await update.message.reply_text(
                 "❌ Failed to send input. Session may have closed."
             )

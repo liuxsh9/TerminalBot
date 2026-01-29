@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-import time
+import re
 from dataclasses import dataclass, field
 from typing import Callable, Optional, Awaitable
 
@@ -13,9 +13,8 @@ logger = logging.getLogger(__name__)
 # Telegram message limit
 MAX_MESSAGE_LENGTH = 4000
 
-# Buffer settings
-BUFFER_DELAY = 0.5  # seconds to wait before sending buffered output
-MIN_BURST_INTERVAL = 2.0  # seconds - outputs faster than this get buffered
+# Terminal window settings
+TERMINAL_LINES = 30  # Number of lines to show (like a terminal window)
 
 
 @dataclass
@@ -24,9 +23,11 @@ class Connection:
 
     chat_id: int
     pane_identifier: str
-    last_output_time: float = 0
-    output_buffer: list[str] = field(default_factory=list)
-    buffer_task: Optional[asyncio.Task] = None
+    # Single terminal window message
+    terminal_message_id: Optional[int] = None
+    last_content_hash: str = ""
+    # Control keys message (should always be below terminal)
+    keys_message_id: Optional[int] = None
 
 
 class SessionBridge:
@@ -41,18 +42,42 @@ class SessionBridge:
         self._poll_interval = poll_interval
         self._connections: dict[int, Connection] = {}  # chat_id -> Connection
         self._polling_task: Optional[asyncio.Task] = None
-        self._output_callback: Optional[Callable[[int, str], Awaitable[None]]] = None
+        self._output_callback: Optional[Callable[[int, str, Optional[int]], Awaitable[Optional[int]]]] = None
+        self._delete_callback: Optional[Callable[[int, int], Awaitable[bool]]] = None
+        self._keys_callback: Optional[Callable[[int], Awaitable[Optional[int]]]] = None
         self._disconnect_callback: Optional[Callable[[int, str], Awaitable[None]]] = None
 
     def set_output_callback(
-        self, callback: Callable[[int, str], Awaitable[None]]
+        self, callback: Callable[[int, str, Optional[int]], Awaitable[Optional[int]]]
     ) -> None:
         """Set callback for sending output to Telegram.
 
         Args:
-            callback: Async function(chat_id, message) to send output.
+            callback: Async function(chat_id, message, edit_message_id) -> message_id
+                     If edit_message_id is provided, edit that message instead of sending new.
+                     Returns the message_id of the sent/edited message.
         """
         self._output_callback = callback
+
+    def set_delete_callback(
+        self, callback: Callable[[int, int], Awaitable[bool]]
+    ) -> None:
+        """Set callback for deleting a message.
+
+        Args:
+            callback: Async function(chat_id, message_id) -> success
+        """
+        self._delete_callback = callback
+
+    def set_keys_callback(
+        self, callback: Callable[[int], Awaitable[Optional[int]]]
+    ) -> None:
+        """Set callback for sending control keys panel.
+
+        Args:
+            callback: Async function(chat_id) -> message_id
+        """
+        self._keys_callback = callback
 
     def set_disconnect_callback(
         self, callback: Callable[[int, str], Awaitable[None]]
@@ -89,9 +114,6 @@ class SessionBridge:
             pane_identifier=pane_identifier,
         )
 
-        # Clear content history to get fresh start
-        self._terminal.clear_history(pane_identifier)
-
         # Start polling if not already running
         if self._polling_task is None or self._polling_task.done():
             self._polling_task = asyncio.create_task(self._poll_loop())
@@ -118,9 +140,6 @@ class SessionBridge:
     def _cleanup_connection(self, chat_id: int) -> None:
         """Clean up a connection."""
         if chat_id in self._connections:
-            conn = self._connections[chat_id]
-            if conn.buffer_task and not conn.buffer_task.done():
-                conn.buffer_task.cancel()
             del self._connections[chat_id]
 
     def get_connection(self, chat_id: int) -> Optional[str]:
@@ -197,57 +216,84 @@ class SessionBridge:
                 disconnected.append((chat_id, "Pane closed or no longer exists"))
                 continue
 
-            # Get new content
-            new_content = self._terminal.get_new_content(conn.pane_identifier)
-            if new_content:
-                await self._handle_output(conn, new_content)
+            # Get current pane content (full capture)
+            content = self._terminal.capture_pane(conn.pane_identifier)
+            if content is not None:
+                await self._update_terminal_window(conn, content)
 
         # Handle disconnections
         for chat_id, reason in disconnected:
             await self._handle_disconnect(chat_id, reason)
 
-    async def _handle_output(self, conn: Connection, content: str) -> None:
-        """Handle new output from a pane with buffering."""
-        now = time.time()
-        time_since_last = now - conn.last_output_time
-
-        if time_since_last < MIN_BURST_INTERVAL:
-            # Buffer rapid output
-            conn.output_buffer.append(content)
-
-            # Schedule flush if not already scheduled
-            if conn.buffer_task is None or conn.buffer_task.done():
-                conn.buffer_task = asyncio.create_task(
-                    self._flush_buffer_delayed(conn)
-                )
-        else:
-            # Send immediately
-            conn.last_output_time = now
-            await self._send_output(conn.chat_id, content)
-
-    async def _flush_buffer_delayed(self, conn: Connection) -> None:
-        """Flush output buffer after a delay."""
-        await asyncio.sleep(BUFFER_DELAY)
-
-        if conn.output_buffer:
-            combined = "\n".join(conn.output_buffer)
-            conn.output_buffer.clear()
-            conn.last_output_time = time.time()
-            await self._send_output(conn.chat_id, combined)
-
-    async def _send_output(self, chat_id: int, content: str) -> None:
-        """Send output to Telegram with formatting and truncation."""
+    async def _update_terminal_window(self, conn: Connection, content: str) -> None:
+        """Update the terminal window message with current content."""
         if not self._output_callback:
             return
 
-        # Format as monospace
-        formatted = format_output(content)
+        # Format content (last N lines)
+        formatted = format_terminal_window(content, TERMINAL_LINES)
+
+        # Check if content actually changed
+        content_hash = hash(formatted)
+        if content_hash == conn.last_content_hash:
+            return  # No change, skip update
+
+        conn.last_content_hash = content_hash
 
         try:
-            await self._output_callback(chat_id, formatted)
+            # Check if keys panel exists and is below terminal message
+            # If terminal message doesn't exist or keys is above it, we need to reorder
+            need_reorder = False
+            if conn.keys_message_id:
+                if conn.terminal_message_id is None:
+                    need_reorder = True
+                elif conn.keys_message_id < conn.terminal_message_id:
+                    # Keys is above terminal (shouldn't happen normally)
+                    need_reorder = True
+
+            # If we need to send a new terminal message (not edit), reorder keys panel
+            if conn.terminal_message_id is None and conn.keys_message_id:
+                need_reorder = True
+
+            # Delete keys panel if we need to reorder
+            if need_reorder and self._delete_callback and conn.keys_message_id:
+                await self._delete_callback(conn.chat_id, conn.keys_message_id)
+                conn.keys_message_id = None
+
+            # Send/edit terminal message
+            message_id = await self._output_callback(
+                conn.chat_id,
+                formatted,
+                conn.terminal_message_id
+            )
+
+            # Store message ID for future edits
+            if message_id:
+                # If this is a new message (different ID), we need to resend keys panel
+                if conn.terminal_message_id != message_id:
+                    need_reorder = True
+                conn.terminal_message_id = message_id
+
+            # Resend keys panel below terminal if needed
+            if need_reorder and self._keys_callback:
+                keys_msg_id = await self._keys_callback(conn.chat_id)
+                if keys_msg_id:
+                    conn.keys_message_id = keys_msg_id
+
         except Exception as e:
-            logger.error(f"Error sending output to chat {chat_id}: {e}")
-            # Retry logic could be added here
+            logger.error(f"Error updating terminal window for chat {conn.chat_id}: {e}")
+
+    def set_keys_message_id(self, chat_id: int, message_id: int) -> None:
+        """Store the keys panel message ID for a connection."""
+        conn = self._connections.get(chat_id)
+        if conn:
+            conn.keys_message_id = message_id
+
+    def invalidate_terminal_message(self, chat_id: int) -> None:
+        """Invalidate terminal message so next update creates a new one."""
+        conn = self._connections.get(chat_id)
+        if conn:
+            conn.terminal_message_id = None
 
     async def _handle_disconnect(self, chat_id: int, reason: str) -> None:
         """Handle unexpected disconnection."""
@@ -272,23 +318,46 @@ class SessionBridge:
             self._cleanup_connection(chat_id)
 
 
-def format_output(content: str) -> str:
-    """Format terminal output for Telegram.
+def format_terminal_window(content: str, max_lines: int = 30) -> str:
+    """Format terminal content as a fixed-height window.
 
     Args:
         content: Raw terminal output
+        max_lines: Maximum number of lines to show
 
     Returns:
-        Formatted output with monospace and truncation.
+        Formatted output showing last N lines.
     """
-    # Strip ANSI escape codes (basic)
-    import re
+    # Strip ANSI escape codes
     content = re.sub(r'\x1b\[[0-9;]*m', '', content)
     content = re.sub(r'\x1b\[[0-9;]*[A-Za-z]', '', content)
+    content = re.sub(r'\x1b\][^\x07]*\x07', '', content)  # OSC sequences
+    content = re.sub(r'\x1b[PX^_][^\x1b]*\x1b\\', '', content)  # Other sequences
 
-    # Truncate if too long
-    if len(content) > MAX_MESSAGE_LENGTH - 20:
-        content = content[: MAX_MESSAGE_LENGTH - 20] + "\n[truncated]"
+    # Remove carriage returns
+    content = re.sub(r'\r+', '', content)
 
-    # Wrap in code block
+    # Split into lines and get last N non-empty lines
+    lines = content.split('\n')
+
+    # Remove trailing empty lines
+    while lines and not lines[-1].strip():
+        lines.pop()
+
+    # Get last N lines
+    if len(lines) > max_lines:
+        lines = lines[-max_lines:]
+
+    # Strip trailing whitespace from each line
+    lines = [line.rstrip() for line in lines]
+
+    # Join back
+    content = '\n'.join(lines)
+
+    # Truncate if still too long for Telegram
+    if len(content) > MAX_MESSAGE_LENGTH - 50:
+        content = content[-(MAX_MESSAGE_LENGTH - 50):]
+        content = "[...]\n" + content
+
+    # Wrap in code block with header
     return f"```\n{content}\n```"
