@@ -21,7 +21,7 @@ Control your tmux terminal sessions remotely via Telegram. Perfect for monitorin
 ## Installation
 
 ```bash
-git clone https://github.com/user/TerminalBot.git
+git clone https://github.com/liuxsh9/TerminalBot.git
 cd TerminalBot
 
 # Install uv (if not already installed)
