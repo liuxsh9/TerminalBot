@@ -40,10 +40,13 @@ class SessionBridge:
         terminal_capture: TerminalCapture,
         poll_interval: float = 1.0,
         terminal_lines: int = DEFAULT_TERMINAL_LINES,
+        default_work_dir: Optional[str] = None,
     ):
         self._terminal = terminal_capture
         self._poll_interval = poll_interval
         self._terminal_lines = terminal_lines
+        self._default_work_dir = default_work_dir
+        self._session_counter = 0  # Counter for auto-naming sessions
         self._connections: dict[int, Connection] = {}  # chat_id -> Connection
         self._polling_task: Optional[asyncio.Task] = None
         self._output_callback: Optional[Callable[[int, str, Optional[int]], Awaitable[Optional[int]]]] = None
@@ -167,8 +170,12 @@ class SessionBridge:
         return self._terminal.list_sessions()
 
     def create_session(self, name: str = None):
-        """Create a new tmux session."""
-        return self._terminal.create_session(name)
+        """Create a new tmux session with auto-generated name if not provided."""
+        if name is None:
+            # Auto-generate short session name: tb0, tb1, tb2, ...
+            self._session_counter += 1
+            name = f"tb{self._session_counter}"
+        return self._terminal.create_session(name, self._default_work_dir)
 
     def resize_pane(self, pane_id: str, width: int) -> bool:
         """Resize a pane to specified width."""

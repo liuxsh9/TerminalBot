@@ -52,6 +52,9 @@ POLL_INTERVAL=1
 
 # Number of terminal lines to display (default: 30)
 TERMINAL_LINES=30
+
+# Default working directory for new sessions (default: ~)
+DEFAULT_WORK_DIR=~
 ```
 
 ## Usage

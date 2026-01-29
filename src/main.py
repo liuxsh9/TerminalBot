@@ -38,12 +38,16 @@ def load_config() -> dict:
 
     poll_interval = float(os.getenv("POLL_INTERVAL", "1"))
     terminal_lines = int(os.getenv("TERMINAL_LINES", "30"))
+    default_work_dir = os.getenv("DEFAULT_WORK_DIR", "~")
+    # Expand ~ to actual home directory
+    default_work_dir = os.path.expanduser(default_work_dir)
 
     return {
         "token": token,
         "authorized_users": authorized_users,
         "poll_interval": poll_interval,
         "terminal_lines": terminal_lines,
+        "default_work_dir": default_work_dir,
     }
 
 
@@ -59,6 +63,7 @@ async def run_bot(config: dict) -> None:
         terminal_capture=terminal_capture,
         poll_interval=config["poll_interval"],
         terminal_lines=config["terminal_lines"],
+        default_work_dir=config["default_work_dir"],
     )
     application = create_bot(
         token=config["token"],

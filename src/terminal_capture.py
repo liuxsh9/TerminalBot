@@ -231,11 +231,14 @@ class TerminalCapture:
             logger.error(f"Error resetting terminal width for {identifier}: {e}")
             return False
 
-    def create_session(self, name: Optional[str] = None) -> Optional[tuple[str, str]]:
+    def create_session(
+        self, name: Optional[str] = None, start_directory: Optional[str] = None
+    ) -> Optional[tuple[str, str]]:
         """Create a new tmux session.
 
         Args:
             name: Optional session name. If not provided, tmux will auto-generate.
+            start_directory: Optional working directory for the new session.
 
         Returns:
             Tuple of (session_name, pane_identifier) if successful, None otherwise.
@@ -251,7 +254,10 @@ class TerminalCapture:
                 return None
 
         try:
-            session = server.new_session(session_name=name)
+            session = server.new_session(
+                session_name=name,
+                start_directory=start_directory,
+            )
             window = session.active_window
             pane = window.active_pane
             pane_id = f"{session.name}:{window.index}.{pane.index}"
