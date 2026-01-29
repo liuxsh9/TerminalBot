@@ -16,13 +16,14 @@ from telegram.ext import (
 # Bot commands for the menu
 BOT_COMMANDS = [
     BotCommand("start", "Start the bot"),
-    BotCommand("help", "Show help message"),
-    BotCommand("list", "List available tmux sessions"),
     BotCommand("connect", "Connect to a tmux pane"),
     BotCommand("disconnect", "Disconnect from current session"),
-    BotCommand("keys", "Show control keys panel"),
-    BotCommand("resize", "Resize pane width (e.g., /resize 70)"),
+    BotCommand("refresh", "Refresh terminal display"),
+    BotCommand("list", "List available tmux sessions"),
     BotCommand("new", "Create new tmux session"),
+    BotCommand("resize", "Set terminal width"),
+    BotCommand("keys", "Show control keys panel"),
+    BotCommand("help", "Show help message"),
 ]
 
 # Special keys mapping for tmux
@@ -376,6 +377,41 @@ class TelegramBot:
             parse_mode="Markdown"
         )
 
+    async def cmd_refresh(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle /refresh command - force refresh terminal display."""
+        user_id = update.effective_user.id
+        chat_id = update.effective_chat.id
+
+        if not self._is_authorized(user_id):
+            await update.message.reply_text("Unauthorized. Access denied.")
+            return
+
+        if not self._bridge.is_connected(chat_id):
+            await update.message.reply_text(
+                "Not connected to any session.\n"
+                "Use /connect first."
+            )
+            return
+
+        pane_id = self._bridge.get_connection(chat_id)
+
+        # Check if pane still exists
+        if not self._bridge._terminal.pane_exists(pane_id):
+            self._bridge.disconnect(chat_id)
+            await update.message.reply_text(
+                f"⚠️ Session `{pane_id}` no longer exists.\n"
+                "Use /connect or /new to start a new session.",
+                parse_mode="Markdown"
+            )
+            return
+
+        # Force refresh by invalidating message and triggering immediate poll
+        self._bridge.invalidate_terminal_message(chat_id)
+        await self._bridge.force_refresh(chat_id)
+        await update.message.reply_text("✅ Refreshed")
+
     def _get_keys_keyboard(self, auto_enter: bool = True) -> InlineKeyboardMarkup:
         """Create inline keyboard for control keys."""
         mode_label = "Auto" if auto_enter else "Wait"
@@ -715,6 +751,7 @@ def create_bot(
     application.add_handler(CommandHandler("keys", bot.cmd_keys))
     application.add_handler(CommandHandler("resize", bot.cmd_resize))
     application.add_handler(CommandHandler("new", bot.cmd_new))
+    application.add_handler(CommandHandler("refresh", bot.cmd_refresh))
 
     # Callback handlers for inline keyboard
     application.add_handler(

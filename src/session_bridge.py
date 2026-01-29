@@ -325,6 +325,29 @@ class SessionBridge:
         if conn:
             conn.terminal_message_id = None
 
+    async def force_refresh(self, chat_id: int) -> bool:
+        """Force refresh terminal display for a connection.
+
+        Args:
+            chat_id: Telegram chat ID
+
+        Returns:
+            True if refreshed successfully, False otherwise.
+        """
+        conn = self._connections.get(chat_id)
+        if conn is None:
+            return False
+
+        # Clear content hash to force update
+        conn.last_content_hash = ""
+
+        # Get current content and update
+        content = self._terminal.capture_pane(conn.pane_identifier)
+        if content is not None:
+            await self._update_terminal_window(conn, content)
+            return True
+        return False
+
     async def _handle_disconnect(self, chat_id: int, reason: str) -> None:
         """Handle unexpected disconnection."""
         self._cleanup_connection(chat_id)
