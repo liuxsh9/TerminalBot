@@ -62,17 +62,9 @@ async def run_bot(config: dict) -> None:
     logger.info("Starting TerminalBot...")
     await application.initialize()
 
-    # Set bot commands for menu
-    from telegram import BotCommand
-    commands = [
-        BotCommand("start", "Start the bot"),
-        BotCommand("help", "Show help message"),
-        BotCommand("list", "List available tmux sessions"),
-        BotCommand("connect", "Connect to a tmux pane"),
-        BotCommand("disconnect", "Disconnect from current session"),
-        BotCommand("keys", "Show control keys panel"),
-    ]
-    await application.bot.set_my_commands(commands)
+    # Set bot commands for menu (imported from telegram_bot)
+    from src.telegram_bot import BOT_COMMANDS
+    await application.bot.set_my_commands(BOT_COMMANDS)
     logger.info("Bot commands menu registered")
 
     await application.start()
