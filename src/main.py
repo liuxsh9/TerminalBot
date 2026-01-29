@@ -37,11 +37,13 @@ def load_config() -> dict:
         sys.exit(1)
 
     poll_interval = float(os.getenv("POLL_INTERVAL", "1"))
+    terminal_lines = int(os.getenv("TERMINAL_LINES", "30"))
 
     return {
         "token": token,
         "authorized_users": authorized_users,
         "poll_interval": poll_interval,
+        "terminal_lines": terminal_lines,
     }
 
 
@@ -56,6 +58,7 @@ async def run_bot(config: dict) -> None:
     session_bridge = SessionBridge(
         terminal_capture=terminal_capture,
         poll_interval=config["poll_interval"],
+        terminal_lines=config["terminal_lines"],
     )
     application = create_bot(
         token=config["token"],
@@ -65,11 +68,6 @@ async def run_bot(config: dict) -> None:
 
     logger.info("Starting TerminalBot...")
     await application.initialize()
-
-    # Set bot commands for menu (imported from telegram_bot)
-    from src.telegram_bot import BOT_COMMANDS
-    await application.bot.set_my_commands(BOT_COMMANDS)
-    logger.info("Bot commands menu registered")
 
     await application.start()
     await application.updater.start_polling()

@@ -1,7 +1,8 @@
-"""Telegram bot module for CCBot."""
+"""Telegram bot module for TerminalBot."""
 
 import logging
-from typing import Optional, Set
+from functools import wraps
+from typing import Optional
 
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
@@ -12,6 +13,10 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+
+from src.session_bridge import SessionBridge
+
+logger = logging.getLogger(__name__)
 
 # Bot commands for the menu
 BOT_COMMANDS = [
@@ -41,9 +46,32 @@ SPECIAL_KEYS = {
     "esc": "Escape",
 }
 
-from src.session_bridge import SessionBridge
+# Invisible placeholder character for empty messages with inline keyboards
+# Using Hangul Filler (U+3164) because Telegram requires non-empty text
+INVISIBLE_PLACEHOLDER = "\u3164"
 
-logger = logging.getLogger(__name__)
+
+def authorized_only(func):
+    """Decorator to check user authorization before executing handler."""
+    @wraps(func)
+    async def wrapper(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user_id = update.effective_user.id
+        if not self._is_authorized(user_id):
+            await update.message.reply_text("Unauthorized. Access denied.")
+            return
+        return await func(self, update, context)
+    return wrapper
+
+
+def authorized_callback(func):
+    """Decorator to check user authorization for callback handlers."""
+    @wraps(func)
+    async def wrapper(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user_id = update.effective_user.id
+        if not self._is_authorized(user_id):
+            return
+        return await func(self, update, context)
+    return wrapper
 
 
 class TelegramBot:
@@ -51,7 +79,7 @@ class TelegramBot:
 
     def __init__(
         self,
-        authorized_users: Set[int],
+        authorized_users: set[int],
         session_bridge: SessionBridge,
     ):
         self._authorized_users = authorized_users
@@ -71,8 +99,6 @@ class TelegramBot:
 
     def _is_authorized(self, user_id: int) -> bool:
         """Check if user is authorized."""
-        if not self._authorized_users:
-            return True  # No whitelist = allow all
         return user_id in self._authorized_users
 
     async def _send_output(self, chat_id: int, message: str, edit_message_id: int = None) -> int:
@@ -155,7 +181,7 @@ class TelegramBot:
             auto_enter = self._bridge.get_auto_enter(chat_id)
             msg = await self._application.bot.send_message(
                 chat_id=chat_id,
-                text="ㅤ",
+                text=INVISIBLE_PLACEHOLDER,
                 reply_markup=self._get_keys_keyboard(auto_enter),
             )
             return msg.message_id
@@ -171,16 +197,11 @@ class TelegramBot:
                 text=f"⚠️ Disconnected: {reason}",
             )
 
+    @authorized_only
     async def cmd_start(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
         """Handle /start command."""
-        user_id = update.effective_user.id
-
-        if not self._is_authorized(user_id):
-            await update.message.reply_text("Unauthorized. Access denied.")
-            return
-
         await update.message.reply_text(
             "Welcome to TerminalBot!\n\n"
             "Control tmux sessions from your phone.\n\n"
@@ -188,16 +209,11 @@ class TelegramBot:
             "/connect - Connect to existing session"
         )
 
+    @authorized_only
     async def cmd_help(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
         """Handle /help command."""
-        user_id = update.effective_user.id
-
-        if not self._is_authorized(user_id):
-            await update.message.reply_text("Unauthorized. Access denied.")
-            return
-
         await update.message.reply_text(
             "TerminalBot Commands:\n\n"
             "/list - List available tmux panes\n"
@@ -213,17 +229,12 @@ class TelegramBot:
             "Tip: Unknown /commands are forwarded to terminal when connected."
         )
 
+    @authorized_only
     async def cmd_list(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
         """Handle /list command - show available sessions."""
-        user_id = update.effective_user.id
-
-        if not self._is_authorized(user_id):
-            await update.message.reply_text("Unauthorized. Access denied.")
-            return
-
-        panes = self._bridge._terminal.list_sessions()
+        panes = self._bridge.list_sessions()
 
         if not panes:
             await update.message.reply_text(
@@ -240,16 +251,12 @@ class TelegramBot:
         lines.append("\nUse /connect <id> to connect")
         await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
+    @authorized_only
     async def cmd_connect(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
         """Handle /connect command - connect to a tmux pane."""
-        user_id = update.effective_user.id
         chat_id = update.effective_chat.id
-
-        if not self._is_authorized(user_id):
-            await update.message.reply_text("Unauthorized. Access denied.")
-            return
 
         # Check if already connected
         current = self._bridge.get_connection(chat_id)
@@ -263,7 +270,7 @@ class TelegramBot:
 
         # If no argument provided, show inline keyboard with available panes
         if not context.args:
-            panes = self._bridge._terminal.list_sessions()
+            panes = self._bridge.list_sessions()
             if not panes:
                 await update.message.reply_text(
                     "No tmux sessions found.\n\n"
@@ -309,6 +316,7 @@ class TelegramBot:
                 parse_mode="Markdown"
             )
 
+    @authorized_callback
     async def callback_connect(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
@@ -316,11 +324,7 @@ class TelegramBot:
         query = update.callback_query
         await query.answer()
 
-        user_id = update.effective_user.id
         chat_id = update.effective_chat.id
-
-        if not self._is_authorized(user_id):
-            return
 
         # Check if already connected
         current = self._bridge.get_connection(chat_id)
@@ -349,16 +353,12 @@ class TelegramBot:
                 parse_mode="Markdown"
             )
 
+    @authorized_only
     async def cmd_disconnect(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
         """Handle /disconnect command."""
-        user_id = update.effective_user.id
         chat_id = update.effective_chat.id
-
-        if not self._is_authorized(user_id):
-            await update.message.reply_text("Unauthorized. Access denied.")
-            return
 
         current = self._bridge.get_connection(chat_id)
         if not current:
@@ -371,16 +371,12 @@ class TelegramBot:
             parse_mode="Markdown"
         )
 
+    @authorized_only
     async def cmd_refresh(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
         """Handle /refresh command - force refresh terminal display."""
-        user_id = update.effective_user.id
         chat_id = update.effective_chat.id
-
-        if not self._is_authorized(user_id):
-            await update.message.reply_text("Unauthorized. Access denied.")
-            return
 
         if not self._bridge.is_connected(chat_id):
             await update.message.reply_text(
@@ -392,7 +388,7 @@ class TelegramBot:
         pane_id = self._bridge.get_connection(chat_id)
 
         # Check if pane still exists
-        if not self._bridge._terminal.pane_exists(pane_id):
+        if not self._bridge.pane_exists(pane_id):
             self._bridge.disconnect(chat_id)
             await update.message.reply_text(
                 f"⚠️ Session `{pane_id}` no longer exists.\n"
@@ -432,16 +428,12 @@ class TelegramBot:
         ]
         return InlineKeyboardMarkup(keyboard)
 
+    @authorized_only
     async def cmd_keys(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
         """Handle /keys command - show control keys panel."""
-        user_id = update.effective_user.id
         chat_id = update.effective_chat.id
-
-        if not self._is_authorized(user_id):
-            await update.message.reply_text("Unauthorized. Access denied.")
-            return
 
         if not self._bridge.is_connected(chat_id):
             await update.message.reply_text(
@@ -455,22 +447,18 @@ class TelegramBot:
 
         auto_enter = self._bridge.get_auto_enter(chat_id)
         msg = await update.message.reply_text(
-            "ㅤ",
+            INVISIBLE_PLACEHOLDER,
             reply_markup=self._get_keys_keyboard(auto_enter)
         )
         # Store keys message ID
         self._bridge.set_keys_message_id(chat_id, msg.message_id)
 
+    @authorized_only
     async def cmd_resize(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
         """Handle /resize command - resize connected pane width."""
-        user_id = update.effective_user.id
         chat_id = update.effective_chat.id
-
-        if not self._is_authorized(user_id):
-            await update.message.reply_text("Unauthorized. Access denied.")
-            return
 
         if not self._bridge.is_connected(chat_id):
             await update.message.reply_text(
@@ -517,11 +505,12 @@ class TelegramBot:
     async def _do_resize(self, chat_id: int, width: int, reply_func) -> None:
         """Perform the actual resize."""
         pane_id = self._bridge.get_connection(chat_id)
-        if self._bridge._terminal.set_terminal_width(pane_id, width):
+        if self._bridge.set_terminal_width(pane_id, width):
             await reply_func(f"✅ Terminal width set to {width} columns")
         else:
             await reply_func("❌ Failed to set terminal width.")
 
+    @authorized_callback
     async def callback_resize(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
@@ -529,11 +518,7 @@ class TelegramBot:
         query = update.callback_query
         await query.answer()
 
-        user_id = update.effective_user.id
         chat_id = update.effective_chat.id
-
-        if not self._is_authorized(user_id):
-            return
 
         if not self._bridge.is_connected(chat_id):
             await query.edit_message_text(
@@ -548,28 +533,24 @@ class TelegramBot:
         if value == "reset":
             # Reset by getting actual terminal size
             pane_id = self._bridge.get_connection(chat_id)
-            if self._bridge._terminal.reset_terminal_width(pane_id):
+            if self._bridge.reset_terminal_width(pane_id):
                 await query.edit_message_text("✅ Terminal width reset")
             else:
                 await query.edit_message_text("❌ Failed to reset terminal width.")
         else:
             width = int(value)
             pane_id = self._bridge.get_connection(chat_id)
-            if self._bridge._terminal.set_terminal_width(pane_id, width):
+            if self._bridge.set_terminal_width(pane_id, width):
                 await query.edit_message_text(f"✅ Terminal width set to {width} columns")
             else:
                 await query.edit_message_text("❌ Failed to set terminal width.")
 
+    @authorized_only
     async def cmd_new(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
         """Handle /new command - create new tmux session."""
-        user_id = update.effective_user.id
         chat_id = update.effective_chat.id
-
-        if not self._is_authorized(user_id):
-            await update.message.reply_text("Unauthorized. Access denied.")
-            return
 
         # Check if already connected
         current = self._bridge.get_connection(chat_id)
@@ -584,7 +565,7 @@ class TelegramBot:
         # Get session name from args or generate one
         session_name = context.args[0] if context.args else None
 
-        result = self._bridge._terminal.create_session(session_name)
+        result = self._bridge.create_session(session_name)
         if result:
             session_name, pane_id = result
             # Auto-connect to the new session
@@ -607,6 +588,7 @@ class TelegramBot:
                 "Make sure tmux is installed and running."
             )
 
+    @authorized_callback
     async def callback_key(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
@@ -614,11 +596,7 @@ class TelegramBot:
         query = update.callback_query
         await query.answer()
 
-        user_id = update.effective_user.id
         chat_id = update.effective_chat.id
-
-        if not self._is_authorized(user_id):
-            return
 
         if not self._bridge.is_connected(chat_id):
             await query.edit_message_text(
@@ -634,7 +612,7 @@ class TelegramBot:
         if key_name == "toggle_mode":
             new_mode = self._bridge.toggle_auto_enter(chat_id)
             await query.edit_message_text(
-                "ㅤ",
+                INVISIBLE_PLACEHOLDER,
                 reply_markup=self._get_keys_keyboard(new_mode)
             )
             return
@@ -654,15 +632,12 @@ class TelegramBot:
                 "❌ Failed to send key. Session may have closed."
             )
 
+    @authorized_only
     async def handle_unknown_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
         """Handle unknown commands - forward to connected terminal."""
-        user_id = update.effective_user.id
         chat_id = update.effective_chat.id
-
-        if not self._is_authorized(user_id):
-            return
 
         if not self._bridge.is_connected(chat_id):
             await update.message.reply_text(
@@ -680,15 +655,12 @@ class TelegramBot:
                 "❌ Failed to send command. Session may have closed."
             )
 
+    @authorized_only
     async def handle_text(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
         """Handle text messages - forward to connected terminal."""
-        user_id = update.effective_user.id
         chat_id = update.effective_chat.id
-
-        if not self._is_authorized(user_id):
-            return  # Silently ignore unauthorized users
 
         if not self._bridge.is_connected(chat_id):
             await update.message.reply_text(
@@ -709,7 +681,7 @@ class TelegramBot:
 
 def create_bot(
     token: str,
-    authorized_users: Set[int],
+    authorized_users: set[int],
     session_bridge: SessionBridge,
 ) -> Application:
     """Create and configure the Telegram bot application.

@@ -13,8 +13,8 @@ logger = logging.getLogger(__name__)
 # Telegram message limit
 MAX_MESSAGE_LENGTH = 4000
 
-# Terminal window settings
-TERMINAL_LINES = 30  # Number of lines to show (like a terminal window)
+# Default terminal window settings
+DEFAULT_TERMINAL_LINES = 30
 
 
 @dataclass
@@ -39,9 +39,11 @@ class SessionBridge:
         self,
         terminal_capture: TerminalCapture,
         poll_interval: float = 1.0,
+        terminal_lines: int = DEFAULT_TERMINAL_LINES,
     ):
         self._terminal = terminal_capture
         self._poll_interval = poll_interval
+        self._terminal_lines = terminal_lines
         self._connections: dict[int, Connection] = {}  # chat_id -> Connection
         self._polling_task: Optional[asyncio.Task] = None
         self._output_callback: Optional[Callable[[int, str, Optional[int]], Awaitable[Optional[int]]]] = None
@@ -160,6 +162,30 @@ class SessionBridge:
         """Check if a chat is connected to a pane."""
         return chat_id in self._connections
 
+    def list_sessions(self):
+        """List available tmux sessions/panes."""
+        return self._terminal.list_sessions()
+
+    def create_session(self, name: str = None):
+        """Create a new tmux session."""
+        return self._terminal.create_session(name)
+
+    def resize_pane(self, pane_id: str, width: int) -> bool:
+        """Resize a pane to specified width."""
+        return self._terminal.resize_pane(pane_id, width)
+
+    def set_terminal_width(self, pane_id: str, width: int) -> bool:
+        """Set terminal width using stty."""
+        return self._terminal.set_terminal_width(pane_id, width)
+
+    def reset_terminal_width(self, pane_id: str) -> bool:
+        """Reset terminal width to actual pane size."""
+        return self._terminal.reset_terminal_width(pane_id)
+
+    def pane_exists(self, pane_id: str) -> bool:
+        """Check if a pane exists."""
+        return self._terminal.pane_exists(pane_id)
+
     def send_input(self, chat_id: int, text: str) -> bool:
         """Send text input to the connected pane.
 
@@ -261,7 +287,7 @@ class SessionBridge:
             return
 
         # Format content (last N lines)
-        formatted = format_terminal_window(content, TERMINAL_LINES)
+        formatted = format_terminal_window(content, self._terminal_lines)
 
         # Check if content actually changed
         content_hash = hash(formatted)

@@ -33,7 +33,6 @@ class TerminalCapture:
 
     def __init__(self):
         self._server: Optional[libtmux.Server] = None
-        self._last_content: dict[str, str] = {}
 
     def _get_server(self) -> Optional[libtmux.Server]:
         """Get or create tmux server connection."""
@@ -134,47 +133,6 @@ class TerminalCapture:
             logger.error(f"Error capturing pane {identifier}: {e}")
             return None
 
-    def get_new_content(self, identifier: str) -> Optional[str]:
-        """Get new content since last capture (change detection).
-
-        Args:
-            identifier: Pane identifier in format "session:window.pane"
-
-        Returns:
-            New content if changed, empty string if unchanged, None if error.
-        """
-        current_content = self.capture_pane(identifier)
-        if current_content is None:
-            return None
-
-        last_content = self._last_content.get(identifier, "")
-        self._last_content[identifier] = current_content
-
-        if current_content == last_content:
-            return ""
-
-        # Find new content by comparing from the end
-        # This handles scrolling better than simple diff
-        if last_content and current_content.endswith(last_content[-500:]):
-            # Content scrolled, return only new part
-            overlap_start = current_content.rfind(last_content[-200:])
-            if overlap_start > 0:
-                return current_content[:overlap_start].strip()
-
-        # If we can't find overlap, return full content on first capture
-        # or just the new content
-        if not last_content:
-            return current_content
-
-        # Return the difference - simple approach: new lines at the end
-        last_lines = set(last_content.split("\n"))
-        new_lines = []
-        for line in current_content.split("\n"):
-            if line not in last_lines:
-                new_lines.append(line)
-
-        return "\n".join(new_lines) if new_lines else ""
-
     def send_keys(self, identifier: str, text: str, enter: bool = True) -> bool:
         """Send text input to a tmux pane.
 
@@ -197,11 +155,6 @@ class TerminalCapture:
         except libtmux.exc.LibTmuxException as e:
             logger.error(f"Error sending keys to {identifier}: {e}")
             return False
-
-    def clear_history(self, identifier: str) -> None:
-        """Clear the stored content history for a pane."""
-        if identifier in self._last_content:
-            del self._last_content[identifier]
 
     def pane_exists(self, identifier: str) -> bool:
         """Check if a pane still exists."""

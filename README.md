@@ -49,6 +49,9 @@ AUTHORIZED_USERS=123456789
 
 # Terminal polling interval in seconds (default: 1)
 POLL_INTERVAL=1
+
+# Number of terminal lines to display (default: 30)
+TERMINAL_LINES=30
 ```
 
 ## Usage
