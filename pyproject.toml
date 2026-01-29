@@ -1,0 +1,13 @@
+[project]
+name = "ccbot"
+version = "0.1.0"
+description = "Telegram bot for controlling terminal/tmux sessions remotely"
+requires-python = ">=3.10"
+dependencies = [
+    "python-telegram-bot>=21.0",
+    "libtmux>=0.37.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.scripts]
+ccbot = "src.main:main"
