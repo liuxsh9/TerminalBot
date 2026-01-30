@@ -81,6 +81,23 @@ async def run_bot(config: dict) -> None:
     await application.start()
     await application.updater.start_polling()
 
+    # Check for restart notification
+    import json
+    restart_file = os.path.join(os.path.dirname(__file__), "..", ".restart_notify")
+    restart_file = os.path.abspath(restart_file)
+    if os.path.exists(restart_file):
+        try:
+            with open(restart_file) as f:
+                data = json.load(f)
+            os.remove(restart_file)
+            await application.bot.send_message(
+                chat_id=data["chat_id"],
+                text="✅ TerminalBot restarted successfully!"
+            )
+            logger.info(f"Sent restart notification to chat {data['chat_id']}")
+        except Exception as e:
+            logger.error(f"Failed to send restart notification: {e}")
+
     try:
         # Keep running until interrupted
         while True:

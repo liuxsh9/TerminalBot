@@ -629,6 +629,12 @@ class TelegramBot:
         # Give time for message to send
         await asyncio.sleep(1)
 
+        # Save chat_id for restart notification
+        import json
+        restart_file = os.path.join(project_root, ".restart_notify")
+        with open(restart_file, "w") as f:
+            json.dump({"chat_id": update.effective_chat.id}, f)
+
         # Restart using os.execv
         os.execv(sys.executable, [sys.executable] + sys.argv)
 

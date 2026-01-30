@@ -29,3 +29,6 @@ openspec/
 
 # Test artifacts
 cc_test/
+
+# Restart notification temp file
+.restart_notify
