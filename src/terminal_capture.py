@@ -265,3 +265,26 @@ class TerminalCapture:
         except libtmux.exc.LibTmuxException as e:
             logger.error(f"Error creating session: {e}")
             return None
+
+    def kill_session(self, session_name: str) -> bool:
+        """Kill a tmux session.
+
+        Args:
+            session_name: Name of the session to kill.
+
+        Returns:
+            True if successful, False otherwise.
+        """
+        server = self._get_server()
+        if server is None:
+            return False
+
+        try:
+            session = server.sessions.get(session_name=session_name)
+            if session:
+                session.kill()
+                return True
+            return False
+        except libtmux.exc.LibTmuxException as e:
+            logger.error(f"Error killing session {session_name}: {e}")
+            return False

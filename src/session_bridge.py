@@ -177,6 +177,10 @@ class SessionBridge:
             name = f"tb{self._session_counter}"
         return self._terminal.create_session(name, self._default_work_dir)
 
+    def kill_session(self, session_name: str) -> bool:
+        """Kill a tmux session."""
+        return self._terminal.kill_session(session_name)
+
     def resize_pane(self, pane_id: str, width: int) -> bool:
         """Resize a pane to specified width."""
         return self._terminal.resize_pane(pane_id, width)

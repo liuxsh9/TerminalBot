@@ -30,9 +30,10 @@ BOT_COMMANDS = [
     BotCommand("resize", "Set terminal width"),
     BotCommand("refresh", "Refresh terminal display"),
     BotCommand("disconnect", "Disconnect from current session"),
-    BotCommand("update", "Update and restart bot"),
+    BotCommand("delete", "Delete a tmux session"),
     BotCommand("start", "Start the bot"),
     BotCommand("keys", "Show control keys panel"),
+    BotCommand("update", "Update and restart bot"),
     BotCommand("help", "Show help message"),
 ]
 
@@ -375,6 +376,95 @@ class TelegramBot:
             f"✅ Disconnected from `{current}`",
             parse_mode="Markdown"
         )
+
+    @authorized_only
+    async def cmd_delete(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle /delete command - delete a tmux session."""
+        panes = self._bridge.list_sessions()
+        if not panes:
+            await update.message.reply_text(
+                "No tmux sessions found.",
+                parse_mode="Markdown"
+            )
+            return
+
+        # Group panes by session
+        sessions = {}
+        for pane in panes:
+            session_name = pane.identifier.split(":")[0]
+            if session_name not in sessions:
+                sessions[session_name] = []
+            sessions[session_name].append(pane)
+
+        # Create inline keyboard with session options
+        keyboard = []
+        for session_name in sessions:
+            pane_count = len(sessions[session_name])
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"{session_name} ({pane_count} pane{'s' if pane_count > 1 else ''})",
+                    callback_data=f"delete_select:{session_name}"
+                )
+            ])
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            "Select a tmux session to delete:",
+            reply_markup=reply_markup
+        )
+
+    @authorized_callback
+    async def callback_delete(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle delete confirmation callbacks."""
+        query = update.callback_query
+        await query.answer()
+
+        data = query.data
+        chat_id = update.effective_chat.id
+
+        if data.startswith("delete_select:"):
+            # First step: show confirmation
+            session_name = data.split(":", 1)[1]
+            keyboard = [
+                [
+                    InlineKeyboardButton("✅ Yes, delete", callback_data=f"delete_confirm:{session_name}"),
+                    InlineKeyboardButton("❌ Cancel", callback_data="delete_cancel")
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                f"⚠️ Are you sure you want to delete session `{session_name}`?\n\n"
+                "This will kill all processes in the session.",
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
+
+        elif data.startswith("delete_confirm:"):
+            # Second step: actually delete
+            session_name = data.split(":", 1)[1]
+
+            # Disconnect if connected to this session
+            current = self._bridge.get_connection(chat_id)
+            if current and current.startswith(session_name + ":"):
+                self._bridge.disconnect(chat_id)
+
+            if self._bridge.kill_session(session_name):
+                await query.edit_message_text(
+                    f"✅ Session `{session_name}` deleted.",
+                    parse_mode="Markdown"
+                )
+            else:
+                await query.edit_message_text(
+                    f"❌ Failed to delete session `{session_name}`.",
+                    parse_mode="Markdown"
+                )
+
+        elif data == "delete_cancel":
+            await query.edit_message_text("Cancelled.")
 
     @authorized_only
     async def cmd_refresh(
@@ -755,6 +845,7 @@ def create_bot(
     application.add_handler(CommandHandler("list", bot.cmd_list))
     application.add_handler(CommandHandler("connect", bot.cmd_connect))
     application.add_handler(CommandHandler("disconnect", bot.cmd_disconnect))
+    application.add_handler(CommandHandler("delete", bot.cmd_delete))
     application.add_handler(CommandHandler("keys", bot.cmd_keys))
     application.add_handler(CommandHandler("resize", bot.cmd_resize))
     application.add_handler(CommandHandler("new", bot.cmd_new))
@@ -764,6 +855,9 @@ def create_bot(
     # Callback handlers for inline keyboard
     application.add_handler(
         CallbackQueryHandler(bot.callback_connect, pattern=r"^connect:")
+    )
+    application.add_handler(
+        CallbackQueryHandler(bot.callback_delete, pattern=r"^delete_")
     )
     application.add_handler(
         CallbackQueryHandler(bot.callback_key, pattern=r"^key:")
