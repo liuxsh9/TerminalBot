@@ -1,6 +1,10 @@
 """Telegram bot module for TerminalBot."""
 
+import asyncio
 import logging
+import os
+import subprocess
+import sys
 from functools import wraps
 from typing import Optional
 
@@ -26,6 +30,7 @@ BOT_COMMANDS = [
     BotCommand("resize", "Set terminal width"),
     BotCommand("refresh", "Refresh terminal display"),
     BotCommand("disconnect", "Disconnect from current session"),
+    BotCommand("update", "Update and restart bot"),
     BotCommand("start", "Start the bot"),
     BotCommand("keys", "Show control keys panel"),
     BotCommand("help", "Show help message"),
@@ -588,6 +593,45 @@ class TelegramBot:
                 "Make sure tmux is installed and running."
             )
 
+    @authorized_only
+    async def cmd_update(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle /update command - update and restart the bot."""
+        await update.message.reply_text("🔄 Updating TerminalBot...")
+
+        # Get project root directory
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+        # Run git pull
+        result = subprocess.run(
+            ["git", "pull"],
+            capture_output=True,
+            text=True,
+            cwd=project_root,
+        )
+
+        if result.returncode != 0:
+            error_msg = result.stderr.strip() or result.stdout.strip()
+            await update.message.reply_text(
+                f"❌ Git pull failed:\n```\n{error_msg}\n```",
+                parse_mode="Markdown"
+            )
+            return
+
+        # Show git pull output
+        output = result.stdout.strip() or "Already up to date."
+        await update.message.reply_text(
+            f"✅ Git pull:\n```\n{output}\n```\n\n🔄 Restarting...",
+            parse_mode="Markdown"
+        )
+
+        # Give time for message to send
+        await asyncio.sleep(1)
+
+        # Restart using os.execv
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+
     @authorized_callback
     async def callback_key(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -709,6 +753,7 @@ def create_bot(
     application.add_handler(CommandHandler("resize", bot.cmd_resize))
     application.add_handler(CommandHandler("new", bot.cmd_new))
     application.add_handler(CommandHandler("refresh", bot.cmd_refresh))
+    application.add_handler(CommandHandler("update", bot.cmd_update))
 
     # Callback handlers for inline keyboard
     application.add_handler(
