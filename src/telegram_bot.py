@@ -696,20 +696,7 @@ def create_bot(
     """
     bot = TelegramBot(authorized_users, session_bridge)
 
-    # Set up post_init to register commands menu
-    async def post_init(app: Application) -> None:
-        try:
-            await app.bot.set_my_commands(BOT_COMMANDS)
-            logger.info("Bot commands menu registered")
-        except Exception as e:
-            logger.error(f"Failed to register bot commands: {e}")
-
-    application = (
-        Application.builder()
-        .token(token)
-        .post_init(post_init)
-        .build()
-    )
+    application = Application.builder().token(token).build()
     bot.set_application(application)
 
     # Register handlers

@@ -54,7 +54,7 @@ def load_config() -> dict:
 async def run_bot(config: dict) -> None:
     """Run the Telegram bot."""
     # Import here to avoid issues if dependencies not installed
-    from src.telegram_bot import create_bot
+    from src.telegram_bot import create_bot, BOT_COMMANDS
     from src.session_bridge import SessionBridge
     from src.terminal_capture import TerminalCapture
 
@@ -73,6 +73,10 @@ async def run_bot(config: dict) -> None:
 
     logger.info("Starting TerminalBot...")
     await application.initialize()
+
+    # Register bot commands menu (post_init is not called with manual start)
+    await application.bot.set_my_commands(BOT_COMMANDS)
+    logger.info("Bot commands menu registered")
 
     await application.start()
     await application.updater.start_polling()
