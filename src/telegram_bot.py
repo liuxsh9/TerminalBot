@@ -698,7 +698,11 @@ def create_bot(
 
     # Set up post_init to register commands menu
     async def post_init(app: Application) -> None:
-        await app.bot.set_my_commands(BOT_COMMANDS)
+        try:
+            await app.bot.set_my_commands(BOT_COMMANDS)
+            logger.info("Bot commands menu registered")
+        except Exception as e:
+            logger.error(f"Failed to register bot commands: {e}")
 
     application = (
         Application.builder()
