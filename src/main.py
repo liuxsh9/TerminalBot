@@ -59,6 +59,7 @@ async def run_bot(config: dict) -> None:
     from src.telegram_bot import create_bot, BOT_COMMANDS
     from src.session_bridge import SessionBridge
     from src.terminal_capture import TerminalCapture
+    from src.health_monitor import HealthMonitor, ConnectionState
 
     terminal_capture = TerminalCapture()
     session_bridge = SessionBridge(
@@ -74,6 +75,21 @@ async def run_bot(config: dict) -> None:
     )
 
     retry_policy = RetryPolicy()
+    health_monitor = HealthMonitor(check_interval=300.0)  # Check every 5 minutes
+
+    async def reconnect_updater():
+        """Reconnect the Telegram updater."""
+        try:
+            await application.updater.stop()
+            await application.updater.start_polling()
+            health_monitor.update_state(ConnectionState.CONNECTED)
+            logger.info("Health-triggered reconnection successful")
+        except Exception as e:
+            logger.error(f"Health-triggered reconnection failed: {e}")
+            health_monitor.update_state(ConnectionState.DEGRADED)
+
+    # Set up health monitor callback
+    health_monitor.set_reconnect_callback(reconnect_updater)
 
     async def start_polling_with_retry():
         """Start polling with automatic retry on failure."""
@@ -106,6 +122,8 @@ async def run_bot(config: dict) -> None:
                     except Exception as e:
                         logger.error(f"Failed to send restart notification: {e}")
 
+                health_monitor.update_state(ConnectionState.CONNECTED)
+                health_monitor.record_successful_poll()
                 logger.info("Bot is running")
                 return  # Successfully started
 
@@ -152,6 +170,10 @@ async def run_bot(config: dict) -> None:
         # Start sleep detection in background
         sleep_task = asyncio.create_task(sleep_detection_loop())
 
+        # Start health monitoring
+        health_monitor.start()
+        logger.info("Health monitoring started")
+
         # Keep running until interrupted
         while True:
             await asyncio.sleep(1)
@@ -159,6 +181,9 @@ async def run_bot(config: dict) -> None:
         pass
     finally:
         logger.info("Shutting down TerminalBot...")
+
+        # Stop health monitor
+        await health_monitor.stop()
 
         # Cancel sleep detection task
         if sleep_task and not sleep_task.done():

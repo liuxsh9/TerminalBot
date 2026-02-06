@@ -721,12 +721,20 @@ class TelegramBot:
 
         # Save chat_id for restart notification
         import json
+        import shutil
         restart_file = os.path.join(project_root, ".restart_notify")
         with open(restart_file, "w") as f:
             json.dump({"chat_id": update.effective_chat.id}, f)
 
         # Restart using os.execv
-        os.execv(sys.executable, [sys.executable] + sys.argv)
+        # Try to use 'uv run' if available to maintain consistency with deployment
+        uv_path = shutil.which('uv')
+        if uv_path:
+            # Restart with uv run (same as deployment methods)
+            os.execv(uv_path, [uv_path, 'run', 'terminalbot'])
+        else:
+            # Fallback to direct python execution
+            os.execv(sys.executable, [sys.executable] + sys.argv)
 
     @authorized_callback
     async def callback_key(
