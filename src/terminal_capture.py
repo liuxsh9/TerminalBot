@@ -2,7 +2,6 @@
 
 import logging
 from dataclasses import dataclass
-from typing import Optional
 
 import libtmux
 
@@ -32,15 +31,15 @@ class TerminalCapture:
     """Capture and interact with tmux terminal sessions."""
 
     def __init__(self):
-        self._server: Optional[libtmux.Server] = None
+        self._server: libtmux.Server | None = None
 
-    def _get_server(self) -> Optional[libtmux.Server]:
+    def _get_server(self) -> libtmux.Server | None:
         """Get or create tmux server connection."""
         try:
             if self._server is None:
                 self._server = libtmux.Server()
             # Test connection by listing sessions
-            self._server.sessions
+            _ = self._server.sessions
             return self._server
         except libtmux.exc.LibTmuxException:
             self._server = None
@@ -77,7 +76,7 @@ class TerminalCapture:
 
         return panes
 
-    def get_pane(self, identifier: str) -> Optional[libtmux.Pane]:
+    def get_pane(self, identifier: str) -> libtmux.Pane | None:
         """Get a pane by its identifier (session:window.pane).
 
         Args:
@@ -112,7 +111,7 @@ class TerminalCapture:
             logger.error(f"Error getting pane {identifier}: {e}")
             return None
 
-    def capture_pane(self, identifier: str) -> Optional[str]:
+    def capture_pane(self, identifier: str) -> str | None:
         """Capture the visible content of a tmux pane.
 
         Args:
@@ -232,8 +231,8 @@ class TerminalCapture:
             return False
 
     def create_session(
-        self, name: Optional[str] = None, start_directory: Optional[str] = None
-    ) -> Optional[tuple[str, str]]:
+        self, name: str | None = None, start_directory: str | None = None
+    ) -> tuple[str, str] | None:
         """Create a new tmux session.
 
         Args:

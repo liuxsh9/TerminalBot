@@ -5,13 +5,13 @@ import logging
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 
 class ConnectionState(Enum):
     """Bot connection states."""
+
     DISCONNECTED = "disconnected"
     CONNECTING = "connecting"
     CONNECTED = "connected"
@@ -21,9 +21,10 @@ class ConnectionState(Enum):
 @dataclass
 class HealthStatus:
     """Current health status of the bot."""
+
     state: ConnectionState
-    last_poll_time: Optional[float]
-    last_message_time: Optional[float]
+    last_poll_time: float | None
+    last_message_time: float | None
     uptime_seconds: float
 
     def is_healthy(self) -> bool:
@@ -46,10 +47,10 @@ class HealthMonitor:
         """
         self.check_interval = check_interval
         self.state = ConnectionState.DISCONNECTED
-        self.last_poll_time: Optional[float] = None
-        self.last_message_time: Optional[float] = None
+        self.last_poll_time: float | None = None
+        self.last_message_time: float | None = None
         self.start_time = time.time()
-        self._monitoring_task: Optional[asyncio.Task] = None
+        self._monitoring_task: asyncio.Task | None = None
         self._reconnect_callback = None
 
     def set_reconnect_callback(self, callback):
@@ -92,7 +93,7 @@ class HealthMonitor:
             state=self.state,
             last_poll_time=self.last_poll_time,
             last_message_time=self.last_message_time,
-            uptime_seconds=uptime
+            uptime_seconds=uptime,
         )
 
     def log_status(self):
@@ -107,7 +108,7 @@ class HealthMonitor:
         logger.info(
             f"Health Status: state={status.state.value}, "
             f"last_poll={last_poll_str}, "
-            f"uptime={status.uptime_seconds/60:.1f}min"
+            f"uptime={status.uptime_seconds / 60:.1f}min"
         )
 
     async def check_health(self) -> bool:
@@ -123,7 +124,7 @@ class HealthMonitor:
             time_since_poll = time.time() - status.last_poll_time
             if time_since_poll > 300:  # 5 minutes
                 logger.warning(
-                    f"Bot degraded: no successful poll for {time_since_poll/60:.1f} minutes"
+                    f"Bot degraded: no successful poll for {time_since_poll / 60:.1f} minutes"
                 )
                 self.update_state(ConnectionState.DEGRADED)
 

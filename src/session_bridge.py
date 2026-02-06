@@ -3,8 +3,8 @@
 import asyncio
 import logging
 import re
-from dataclasses import dataclass, field
-from typing import Callable, Optional, Awaitable
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 
 from src.terminal_capture import TerminalCapture
 
@@ -24,10 +24,10 @@ class Connection:
     chat_id: int
     pane_identifier: str
     # Single terminal window message
-    terminal_message_id: Optional[int] = None
+    terminal_message_id: int | None = None
     last_content_hash: str = ""
     # Control keys message (should always be below terminal)
-    keys_message_id: Optional[int] = None
+    keys_message_id: int | None = None
     # Input mode: True = auto enter, False = manual enter (Wait)
     auto_enter: bool = True
 
@@ -40,7 +40,7 @@ class SessionBridge:
         terminal_capture: TerminalCapture,
         poll_interval: float = 1.0,
         terminal_lines: int = DEFAULT_TERMINAL_LINES,
-        default_work_dir: Optional[str] = None,
+        default_work_dir: str | None = None,
     ):
         self._terminal = terminal_capture
         self._poll_interval = poll_interval
@@ -48,14 +48,14 @@ class SessionBridge:
         self._default_work_dir = default_work_dir
         self._session_counter = 0  # Counter for auto-naming sessions
         self._connections: dict[int, Connection] = {}  # chat_id -> Connection
-        self._polling_task: Optional[asyncio.Task] = None
-        self._output_callback: Optional[Callable[[int, str, Optional[int]], Awaitable[Optional[int]]]] = None
-        self._delete_callback: Optional[Callable[[int, int], Awaitable[bool]]] = None
-        self._keys_callback: Optional[Callable[[int], Awaitable[Optional[int]]]] = None
-        self._disconnect_callback: Optional[Callable[[int, str], Awaitable[None]]] = None
+        self._polling_task: asyncio.Task | None = None
+        self._output_callback: Callable[[int, str, int | None], Awaitable[int | None]] | None = None
+        self._delete_callback: Callable[[int, int], Awaitable[bool]] | None = None
+        self._keys_callback: Callable[[int], Awaitable[int | None]] | None = None
+        self._disconnect_callback: Callable[[int, str], Awaitable[None]] | None = None
 
     def set_output_callback(
-        self, callback: Callable[[int, str, Optional[int]], Awaitable[Optional[int]]]
+        self, callback: Callable[[int, str, int | None], Awaitable[int | None]]
     ) -> None:
         """Set callback for sending output to Telegram.
 
@@ -66,9 +66,7 @@ class SessionBridge:
         """
         self._output_callback = callback
 
-    def set_delete_callback(
-        self, callback: Callable[[int, int], Awaitable[bool]]
-    ) -> None:
+    def set_delete_callback(self, callback: Callable[[int, int], Awaitable[bool]]) -> None:
         """Set callback for deleting a message.
 
         Args:
@@ -76,9 +74,7 @@ class SessionBridge:
         """
         self._delete_callback = callback
 
-    def set_keys_callback(
-        self, callback: Callable[[int], Awaitable[Optional[int]]]
-    ) -> None:
+    def set_keys_callback(self, callback: Callable[[int], Awaitable[int | None]]) -> None:
         """Set callback for sending control keys panel.
 
         Args:
@@ -86,9 +82,7 @@ class SessionBridge:
         """
         self._keys_callback = callback
 
-    def set_disconnect_callback(
-        self, callback: Callable[[int, str], Awaitable[None]]
-    ) -> None:
+    def set_disconnect_callback(self, callback: Callable[[int, str], Awaitable[None]]) -> None:
         """Set callback for notifying disconnection.
 
         Args:
@@ -149,7 +143,7 @@ class SessionBridge:
         if chat_id in self._connections:
             del self._connections[chat_id]
 
-    def get_connection(self, chat_id: int) -> Optional[str]:
+    def get_connection(self, chat_id: int) -> str | None:
         """Get the pane identifier for a connected chat.
 
         Args:
@@ -329,9 +323,7 @@ class SessionBridge:
 
             # Send/edit terminal message
             message_id = await self._output_callback(
-                conn.chat_id,
-                formatted,
-                conn.terminal_message_id
+                conn.chat_id, formatted, conn.terminal_message_id
             )
 
             # Store message ID for future edits
@@ -419,21 +411,21 @@ def format_terminal_window(content: str, max_lines: int = 30) -> str:
         Formatted output showing last N lines.
     """
     # Strip ANSI escape codes
-    content = re.sub(r'\x1b\[[0-9;]*m', '', content)
-    content = re.sub(r'\x1b\[[0-9;]*[A-Za-z]', '', content)
-    content = re.sub(r'\x1b\][^\x07]*\x07', '', content)  # OSC sequences
-    content = re.sub(r'\x1b[PX^_][^\x1b]*\x1b\\', '', content)  # Other sequences
+    content = re.sub(r"\x1b\[[0-9;]*m", "", content)
+    content = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", content)
+    content = re.sub(r"\x1b\][^\x07]*\x07", "", content)  # OSC sequences
+    content = re.sub(r"\x1b[PX^_][^\x1b]*\x1b\\", "", content)  # Other sequences
 
     # Remove carriage returns
-    content = re.sub(r'\r+', '', content)
+    content = re.sub(r"\r+", "", content)
 
     # Compress long horizontal lines (─, ━, ═, -, =, etc.)
-    content = re.sub(r'[─━═]{20,}', '────────────────────', content)
-    content = re.sub(r'[-]{20,}', '--------------------', content)
-    content = re.sub(r'[=]{20,}', '====================', content)
+    content = re.sub(r"[─━═]{20,}", "────────────────────", content)
+    content = re.sub(r"[-]{20,}", "--------------------", content)
+    content = re.sub(r"[=]{20,}", "====================", content)
 
     # Split into lines and get last N non-empty lines
-    lines = content.split('\n')
+    lines = content.split("\n")
 
     # Remove trailing empty lines
     while lines and not lines[-1].strip():
@@ -447,11 +439,11 @@ def format_terminal_window(content: str, max_lines: int = 30) -> str:
     lines = [line.rstrip() for line in lines]
 
     # Join back
-    content = '\n'.join(lines)
+    content = "\n".join(lines)
 
     # Truncate if still too long for Telegram
     if len(content) > MAX_MESSAGE_LENGTH - 50:
-        content = content[-(MAX_MESSAGE_LENGTH - 50):]
+        content = content[-(MAX_MESSAGE_LENGTH - 50) :]
         content = "[...]\n" + content
 
     # Wrap in code block with header

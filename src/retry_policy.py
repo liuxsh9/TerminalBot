@@ -2,11 +2,12 @@
 
 import asyncio
 import logging
-from typing import Callable, TypeVar, Any
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 # Retry configuration
 BASE_DELAY = 1  # seconds
@@ -36,15 +37,10 @@ class RetryPolicy:
         Returns:
             Delay in seconds, capped at max_delay
         """
-        delay = self.base_delay * (2 ** attempt)
+        delay = self.base_delay * (2**attempt)
         return min(delay, self.max_delay)
 
-    async def retry_async(
-        self,
-        func: Callable[..., Any],
-        *args: Any,
-        **kwargs: Any
-    ) -> Any:
+    async def retry_async(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         """Retry an async function with exponential backoff.
 
         Args:
@@ -95,9 +91,13 @@ def is_transient_error(exception: Exception) -> bool:
     Returns:
         True if the error is likely transient (network issues, rate limits)
     """
+    # Check for standard timeout exceptions
+    if isinstance(exception, TimeoutError):
+        return True
+
     # Import telegram exceptions locally to avoid circular imports
     try:
-        from telegram.error import NetworkError, TimedOut, RetryAfter
+        from telegram.error import NetworkError, RetryAfter, TimedOut
 
         if isinstance(exception, (NetworkError, TimedOut, RetryAfter)):
             return True
@@ -107,12 +107,12 @@ def is_transient_error(exception: Exception) -> bool:
     # Check for common network-related exceptions
     error_msg = str(exception).lower()
     transient_indicators = [
-        'connection',
-        'timeout',
-        'network',
-        'temporary',
-        'unavailable',
-        'rate limit',
+        "connection",
+        "timeout",
+        "network",
+        "temporary",
+        "unavailable",
+        "rate limit",
     ]
 
     return any(indicator in error_msg for indicator in transient_indicators)

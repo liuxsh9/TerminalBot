@@ -35,3 +35,8 @@ cc_test/
 
 # Logs
 logs/
+
+# Testing
+.coverage
+.pytest_cache/
+htmlcov/

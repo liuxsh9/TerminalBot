@@ -1,148 +1,115 @@
-#!/usr/bin/env python3
 """Test retry logic and error handling."""
 
-import asyncio
-import logging
-from src.retry_policy import RetryPolicy, is_transient_error
+import pytest
 
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
-)
-logger = logging.getLogger(__name__)
+from src.retry_policy import RetryPolicy, is_transient_error
 
 
 class NetworkError(Exception):
     """Simulated network error."""
-    pass
 
 
 class FatalError(Exception):
     """Simulated fatal error."""
-    pass
 
 
-async def simulate_network_failure(fail_count=3):
-    """Simulate a function that fails a few times then succeeds."""
-    if not hasattr(simulate_network_failure, 'attempts'):
-        simulate_network_failure.attempts = 0
+class TestRetryPolicy:
+    """Test RetryPolicy class."""
 
-    simulate_network_failure.attempts += 1
+    @pytest.mark.asyncio
+    async def test_retry_with_success(self):
+        """Test that retry succeeds after transient failures."""
+        attempts = {"count": 0}
 
-    if simulate_network_failure.attempts <= fail_count:
-        logger.info(f"Simulating failure (attempt {simulate_network_failure.attempts})")
-        raise NetworkError(f"Connection failed (attempt {simulate_network_failure.attempts})")
+        async def simulate_network_failure():
+            attempts["count"] += 1
+            if attempts["count"] <= 3:
+                raise NetworkError(f"Connection failed (attempt {attempts['count']})")
+            return "Success"
 
-    logger.info("Success!")
-    return "Success"
+        retry_policy = RetryPolicy(base_delay=0.01, max_delay=1.0)
+        result = await retry_policy.retry_async(simulate_network_failure)
 
+        assert result == "Success"
+        assert attempts["count"] == 4  # 3 failures + 1 success
 
-async def test_retry_with_success():
-    """Test that retry succeeds after transient failures."""
-    print("\n=== Test 1: Retry with eventual success ===")
+    @pytest.mark.asyncio
+    async def test_max_retries_exceeded(self):
+        """Test that retry gives up after max retries."""
+        attempts = {"count": 0}
 
-    simulate_network_failure.attempts = 0
-    retry_policy = RetryPolicy(base_delay=0.1, max_delay=1.0)
+        async def always_fail():
+            attempts["count"] += 1
+            raise NetworkError(f"Connection failed (attempt {attempts['count']})")
 
-    try:
-        result = await retry_policy.retry_async(simulate_network_failure, fail_count=3)
-        print(f"✓ Result: {result}")
-        print(f"✓ Succeeded after {simulate_network_failure.attempts} attempts")
-        return True
-    except Exception as e:
-        print(f"✗ Failed: {e}")
-        return False
+        retry_policy = RetryPolicy(base_delay=0.01, max_delay=1.0, max_retries=2)
 
+        with pytest.raises(NetworkError):
+            await retry_policy.retry_async(always_fail)
 
-async def test_max_retries_exceeded():
-    """Test that retry gives up after max retries."""
-    print("\n=== Test 2: Max retries exceeded ===")
+        assert attempts["count"] == 3  # Initial + 2 retries
 
-    simulate_network_failure.attempts = 0
-    retry_policy = RetryPolicy(base_delay=0.1, max_delay=1.0, max_retries=2)
+    def test_exponential_backoff(self):
+        """Test that delays increase exponentially."""
+        retry_policy = RetryPolicy(base_delay=1.0, max_delay=300.0)
 
-    try:
-        result = await retry_policy.retry_async(simulate_network_failure, fail_count=10)
-        print(f"✗ Should have failed but got: {result}")
-        return False
-    except NetworkError as e:
-        print(f"✓ Correctly gave up after max retries")
-        print(f"✓ Total attempts: {simulate_network_failure.attempts}")
-        return True
+        delays = [retry_policy.get_delay(i) for i in range(10)]
 
+        assert delays == [1, 2, 4, 8, 16, 32, 64, 128, 256, 300]
 
-async def test_exponential_backoff():
-    """Test that delays increase exponentially."""
-    print("\n=== Test 3: Exponential backoff ===")
+    def test_exponential_backoff_no_cap(self):
+        """Test exponential backoff without reaching cap."""
+        retry_policy = RetryPolicy(base_delay=1.0, max_delay=1000.0)
 
-    retry_policy = RetryPolicy(base_delay=1.0, max_delay=300.0)
+        delays = [retry_policy.get_delay(i) for i in range(5)]
 
-    delays = [retry_policy.get_delay(i) for i in range(10)]
-    print(f"Delays for first 10 attempts: {delays}")
-
-    # Check exponential growth
-    if delays == [1, 2, 4, 8, 16, 32, 64, 128, 256, 300]:
-        print("✓ Exponential backoff working correctly (capped at 300s)")
-        return True
-    else:
-        print("✗ Exponential backoff incorrect")
-        return False
+        assert delays == [1, 2, 4, 8, 16]
 
 
-def test_transient_error_detection():
+class TestTransientErrorDetection:
     """Test error classification."""
-    print("\n=== Test 4: Transient error detection ===")
 
-    # Create mock telegram exceptions
-    class MockNetworkError(Exception):
-        pass
+    def test_network_error_is_transient(self):
+        """Test that generic network errors are transient."""
+        error = NetworkError("Connection timeout")
+        assert is_transient_error(error) is True
 
-    class MockTimedOut(Exception):
-        pass
+    def test_network_message_is_transient(self):
+        """Test that errors with 'network' in message are transient."""
+        test_cases = [
+            Exception("network unavailable"),
+            Exception("Network timeout"),
+            Exception("NETWORK ERROR"),
+        ]
+        for error in test_cases:
+            assert is_transient_error(error) is True
 
-    test_cases = [
-        (NetworkError("Connection timeout"), True, "Generic network error"),
-        (Exception("network unavailable"), True, "Network in message"),
-        (Exception("rate limit exceeded"), True, "Rate limit in message"),
-        (FatalError("Invalid token"), False, "Fatal error"),
-        (ValueError("Invalid input"), False, "Non-network error"),
-    ]
+    def test_rate_limit_is_transient(self):
+        """Test that rate limit errors are transient."""
+        error = Exception("rate limit exceeded")
+        assert is_transient_error(error) is True
 
-    passed = 0
-    for error, expected, description in test_cases:
-        result = is_transient_error(error)
-        status = "✓" if result == expected else "✗"
-        print(f"{status} {description}: {result} (expected {expected})")
-        if result == expected:
-            passed += 1
+    def test_timeout_is_transient(self):
+        """Test that timeout errors are transient."""
+        test_cases = [
+            Exception("connection timeout"),
+            Exception("timeout occurred"),
+            TimeoutError("Operation timed out"),
+        ]
+        for error in test_cases:
+            assert is_transient_error(error) is True
 
-    print(f"\n{passed}/{len(test_cases)} tests passed")
-    return passed == len(test_cases)
+    def test_fatal_error_not_transient(self):
+        """Test that fatal errors are not transient."""
+        error = FatalError("Invalid token")
+        assert is_transient_error(error) is False
 
+    def test_value_error_not_transient(self):
+        """Test that value errors are not transient."""
+        error = ValueError("Invalid input")
+        assert is_transient_error(error) is False
 
-async def main():
-    """Run all tests."""
-    print("=" * 60)
-    print("Testing Retry Logic and Error Handling")
-    print("=" * 60)
-
-    results = []
-
-    # Async tests
-    results.append(await test_retry_with_success())
-    results.append(await test_max_retries_exceeded())
-    results.append(await test_exponential_backoff())
-
-    # Sync test
-    results.append(test_transient_error_detection())
-
-    print("\n" + "=" * 60)
-    print(f"Results: {sum(results)}/{len(results)} tests passed")
-    print("=" * 60)
-
-    return all(results)
-
-
-if __name__ == "__main__":
-    success = asyncio.run(main())
-    exit(0 if success else 1)
+    def test_generic_exception_not_transient(self):
+        """Test that generic exceptions without network keywords are not transient."""
+        error = Exception("Something went wrong")
+        assert is_transient_error(error) is False

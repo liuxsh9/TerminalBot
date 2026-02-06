@@ -8,6 +8,7 @@ import sys
 import time
 
 from dotenv import load_dotenv
+
 from src.retry_policy import RetryPolicy, is_transient_error
 
 logging.basicConfig(
@@ -56,10 +57,10 @@ def load_config() -> dict:
 async def run_bot(config: dict) -> None:
     """Run the Telegram bot with retry logic and sleep detection."""
     # Import here to avoid issues if dependencies not installed
-    from src.telegram_bot import create_bot, BOT_COMMANDS
+    from src.health_monitor import ConnectionState, HealthMonitor
     from src.session_bridge import SessionBridge
+    from src.telegram_bot import BOT_COMMANDS, create_bot
     from src.terminal_capture import TerminalCapture
-    from src.health_monitor import HealthMonitor, ConnectionState
 
     terminal_capture = TerminalCapture()
     session_bridge = SessionBridge(
@@ -107,6 +108,7 @@ async def run_bot(config: dict) -> None:
 
                 # Check for restart notification
                 import json
+
                 restart_file = os.path.join(os.path.dirname(__file__), "..", ".restart_notify")
                 restart_file = os.path.abspath(restart_file)
                 if os.path.exists(restart_file):
@@ -115,8 +117,7 @@ async def run_bot(config: dict) -> None:
                             data = json.load(f)
                         os.remove(restart_file)
                         await application.bot.send_message(
-                            chat_id=data["chat_id"],
-                            text="✅ TerminalBot restarted successfully!"
+                            chat_id=data["chat_id"], text="✅ TerminalBot restarted successfully!"
                         )
                         logger.info(f"Sent restart notification to chat {data['chat_id']}")
                     except Exception as e:
@@ -149,8 +150,7 @@ async def run_bot(config: dict) -> None:
 
             if elapsed > SLEEP_THRESHOLD:
                 logger.warning(
-                    f"System sleep detected (time jump: {elapsed:.1f}s). "
-                    "Triggering reconnection..."
+                    f"System sleep detected (time jump: {elapsed:.1f}s). Triggering reconnection..."
                 )
                 # Stop and restart polling to refresh connections
                 try:

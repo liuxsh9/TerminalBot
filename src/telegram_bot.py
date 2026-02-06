@@ -6,7 +6,6 @@ import os
 import subprocess
 import sys
 from functools import wraps
-from typing import Optional
 
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
@@ -60,6 +59,7 @@ INVISIBLE_PLACEHOLDER = "\u3164"
 
 def authorized_only(func):
     """Decorator to check user authorization before executing handler."""
+
     @wraps(func)
     async def wrapper(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
@@ -67,17 +67,20 @@ def authorized_only(func):
             await update.message.reply_text("Unauthorized. Access denied.")
             return
         return await func(self, update, context)
+
     return wrapper
 
 
 def authorized_callback(func):
     """Decorator to check user authorization for callback handlers."""
+
     @wraps(func)
     async def wrapper(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         if not self._is_authorized(user_id):
             return
         return await func(self, update, context)
+
     return wrapper
 
 
@@ -133,7 +136,7 @@ class TelegramBot:
                         parse_mode="Markdown",
                     )
                     return msg.message_id
-                except Exception as e:
+                except Exception:
                     # If edit fails (message too old, etc.), send new
                     pass
 
@@ -172,7 +175,7 @@ class TelegramBot:
             logger.error(f"Error deleting message: {e}")
             return False
 
-    async def _send_keys_panel(self, chat_id: int) -> Optional[int]:
+    async def _send_keys_panel(self, chat_id: int) -> int | None:
         """Send control keys panel.
 
         Args:
@@ -205,9 +208,7 @@ class TelegramBot:
             )
 
     @authorized_only
-    async def cmd_start(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
+    async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command."""
         await update.message.reply_text(
             "Welcome to TerminalBot!\n\n"
@@ -217,9 +218,7 @@ class TelegramBot:
         )
 
     @authorized_only
-    async def cmd_help(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
+    async def cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /help command."""
         await update.message.reply_text(
             "TerminalBot Commands:\n\n"
@@ -237,18 +236,15 @@ class TelegramBot:
         )
 
     @authorized_only
-    async def cmd_list(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
+    async def cmd_list(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /list command - show available sessions."""
         panes = self._bridge.list_sessions()
 
         if not panes:
             await update.message.reply_text(
-                "No tmux sessions found.\n\n"
-                "Start a tmux session first:\n"
-                "`tmux new -s mysession`"
-            , parse_mode="Markdown")
+                "No tmux sessions found.\n\nStart a tmux session first:\n`tmux new -s mysession`",
+                parse_mode="Markdown",
+            )
             return
 
         lines = ["Available tmux panes:\n"]
@@ -259,9 +255,7 @@ class TelegramBot:
         await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
     @authorized_only
-    async def cmd_connect(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
+    async def cmd_connect(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /connect command - connect to a tmux pane."""
         chat_id = update.effective_chat.id
 
@@ -269,9 +263,7 @@ class TelegramBot:
         current = self._bridge.get_connection(chat_id)
         if current:
             await update.message.reply_text(
-                f"Already connected to `{current}`.\n"
-                "Use /disconnect first.",
-                parse_mode="Markdown"
+                f"Already connected to `{current}`.\nUse /disconnect first.", parse_mode="Markdown"
             )
             return
 
@@ -283,24 +275,25 @@ class TelegramBot:
                     "No tmux sessions found.\n\n"
                     "Start a tmux session first:\n"
                     "`tmux new -s mysession`",
-                    parse_mode="Markdown"
+                    parse_mode="Markdown",
                 )
                 return
 
             # Create inline keyboard with pane options
             keyboard = []
             for pane in panes:
-                keyboard.append([
-                    InlineKeyboardButton(
-                        f"{pane.identifier} ({pane.window_name})",
-                        callback_data=f"connect:{pane.identifier}"
-                    )
-                ])
+                keyboard.append(
+                    [
+                        InlineKeyboardButton(
+                            f"{pane.identifier} ({pane.window_name})",
+                            callback_data=f"connect:{pane.identifier}",
+                        )
+                    ]
+                )
 
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(
-                "Select a tmux pane to connect:",
-                reply_markup=reply_markup
+                "Select a tmux pane to connect:", reply_markup=reply_markup
             )
             return
 
@@ -314,19 +307,17 @@ class TelegramBot:
                 f"✅ Connected to `{pane_id}`\n\n"
                 "Terminal output will be streamed here.\n"
                 "Send text to input to the terminal.",
-                parse_mode="Markdown"
+                parse_mode="Markdown",
             )
         else:
             await reply_func(
                 f"❌ Failed to connect to `{pane_id}`\n\n"
                 "Make sure the pane exists. Use /list to see available panes.",
-                parse_mode="Markdown"
+                parse_mode="Markdown",
             )
 
     @authorized_callback
-    async def callback_connect(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
+    async def callback_connect(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle inline keyboard callback for connect."""
         query = update.callback_query
         await query.answer()
@@ -337,9 +328,7 @@ class TelegramBot:
         current = self._bridge.get_connection(chat_id)
         if current:
             await query.edit_message_text(
-                f"Already connected to `{current}`.\n"
-                "Use /disconnect first.",
-                parse_mode="Markdown"
+                f"Already connected to `{current}`.\nUse /disconnect first.", parse_mode="Markdown"
             )
             return
 
@@ -351,19 +340,16 @@ class TelegramBot:
                 f"✅ Connected to `{pane_id}`\n\n"
                 "Terminal output will be streamed here.\n"
                 "Send text to input to the terminal.",
-                parse_mode="Markdown"
+                parse_mode="Markdown",
             )
         else:
             await query.edit_message_text(
-                f"❌ Failed to connect to `{pane_id}`\n\n"
-                "Pane may no longer exist.",
-                parse_mode="Markdown"
+                f"❌ Failed to connect to `{pane_id}`\n\nPane may no longer exist.",
+                parse_mode="Markdown",
             )
 
     @authorized_only
-    async def cmd_disconnect(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
+    async def cmd_disconnect(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /disconnect command."""
         chat_id = update.effective_chat.id
 
@@ -373,22 +359,14 @@ class TelegramBot:
             return
 
         self._bridge.disconnect(chat_id)
-        await update.message.reply_text(
-            f"✅ Disconnected from `{current}`",
-            parse_mode="Markdown"
-        )
+        await update.message.reply_text(f"✅ Disconnected from `{current}`", parse_mode="Markdown")
 
     @authorized_only
-    async def cmd_delete(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
+    async def cmd_delete(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /delete command - delete a tmux session."""
         panes = self._bridge.list_sessions()
         if not panes:
-            await update.message.reply_text(
-                "No tmux sessions found.",
-                parse_mode="Markdown"
-            )
+            await update.message.reply_text("No tmux sessions found.", parse_mode="Markdown")
             return
 
         # Group panes by session
@@ -403,23 +381,22 @@ class TelegramBot:
         keyboard = []
         for session_name in sessions:
             pane_count = len(sessions[session_name])
-            keyboard.append([
-                InlineKeyboardButton(
-                    f"{session_name} ({pane_count} pane{'s' if pane_count > 1 else ''})",
-                    callback_data=f"delete_select:{session_name}"
-                )
-            ])
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        f"{session_name} ({pane_count} pane{'s' if pane_count > 1 else ''})",
+                        callback_data=f"delete_select:{session_name}",
+                    )
+                ]
+            )
 
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
-            "Select a tmux session to delete:",
-            reply_markup=reply_markup
+            "Select a tmux session to delete:", reply_markup=reply_markup
         )
 
     @authorized_callback
-    async def callback_delete(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
+    async def callback_delete(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle delete confirmation callbacks."""
         query = update.callback_query
         await query.answer()
@@ -432,8 +409,10 @@ class TelegramBot:
             session_name = data.split(":", 1)[1]
             keyboard = [
                 [
-                    InlineKeyboardButton("✅ Yes, delete", callback_data=f"delete_confirm:{session_name}"),
-                    InlineKeyboardButton("❌ Cancel", callback_data="delete_cancel")
+                    InlineKeyboardButton(
+                        "✅ Yes, delete", callback_data=f"delete_confirm:{session_name}"
+                    ),
+                    InlineKeyboardButton("❌ Cancel", callback_data="delete_cancel"),
                 ]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -441,7 +420,7 @@ class TelegramBot:
                 f"⚠️ Are you sure you want to delete session `{session_name}`?\n\n"
                 "This will kill all processes in the session.",
                 reply_markup=reply_markup,
-                parse_mode="Markdown"
+                parse_mode="Markdown",
             )
 
         elif data.startswith("delete_confirm:"):
@@ -455,30 +434,23 @@ class TelegramBot:
 
             if self._bridge.kill_session(session_name):
                 await query.edit_message_text(
-                    f"✅ Session `{session_name}` deleted.",
-                    parse_mode="Markdown"
+                    f"✅ Session `{session_name}` deleted.", parse_mode="Markdown"
                 )
             else:
                 await query.edit_message_text(
-                    f"❌ Failed to delete session `{session_name}`.",
-                    parse_mode="Markdown"
+                    f"❌ Failed to delete session `{session_name}`.", parse_mode="Markdown"
                 )
 
         elif data == "delete_cancel":
             await query.edit_message_text("Cancelled.")
 
     @authorized_only
-    async def cmd_refresh(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
+    async def cmd_refresh(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /refresh command - force refresh terminal display."""
         chat_id = update.effective_chat.id
 
         if not self._bridge.is_connected(chat_id):
-            await update.message.reply_text(
-                "Not connected to any session.\n"
-                "Use /connect first."
-            )
+            await update.message.reply_text("Not connected to any session.\nUse /connect first.")
             return
 
         pane_id = self._bridge.get_connection(chat_id)
@@ -489,7 +461,7 @@ class TelegramBot:
             await update.message.reply_text(
                 f"⚠️ Session `{pane_id}` no longer exists.\n"
                 "Use /connect or /new to start a new session.",
-                parse_mode="Markdown"
+                parse_mode="Markdown",
             )
             return
 
@@ -525,17 +497,12 @@ class TelegramBot:
         return InlineKeyboardMarkup(keyboard)
 
     @authorized_only
-    async def cmd_keys(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
+    async def cmd_keys(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /keys command - show control keys panel."""
         chat_id = update.effective_chat.id
 
         if not self._bridge.is_connected(chat_id):
-            await update.message.reply_text(
-                "Not connected to any session.\n"
-                "Use /connect first."
-            )
+            await update.message.reply_text("Not connected to any session.\nUse /connect first.")
             return
 
         # Invalidate terminal message so next update creates new one above keys
@@ -543,24 +510,18 @@ class TelegramBot:
 
         auto_enter = self._bridge.get_auto_enter(chat_id)
         msg = await update.message.reply_text(
-            INVISIBLE_PLACEHOLDER,
-            reply_markup=self._get_keys_keyboard(auto_enter)
+            INVISIBLE_PLACEHOLDER, reply_markup=self._get_keys_keyboard(auto_enter)
         )
         # Store keys message ID
         self._bridge.set_keys_message_id(chat_id, msg.message_id)
 
     @authorized_only
-    async def cmd_resize(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
+    async def cmd_resize(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /resize command - resize connected pane width."""
         chat_id = update.effective_chat.id
 
         if not self._bridge.is_connected(chat_id):
-            await update.message.reply_text(
-                "Not connected to any session.\n"
-                "Use /connect first."
-            )
+            await update.message.reply_text("Not connected to any session.\nUse /connect first.")
             return
 
         # If argument provided, use it directly
@@ -568,16 +529,12 @@ class TelegramBot:
             try:
                 width = int(context.args[0])
                 if width < 20 or width > 500:
-                    await update.message.reply_text(
-                        "Width must be between 20 and 500."
-                    )
+                    await update.message.reply_text("Width must be between 20 and 500.")
                     return
                 await self._do_resize(chat_id, width, update.message.reply_text)
                 return
             except ValueError:
-                await update.message.reply_text(
-                    "Invalid width. Please provide a number."
-                )
+                await update.message.reply_text("Invalid width. Please provide a number.")
                 return
 
         # Show inline keyboard with preset options
@@ -594,8 +551,7 @@ class TelegramBot:
             ],
         ]
         await update.message.reply_text(
-            "Select terminal width:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            "Select terminal width:", reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
     async def _do_resize(self, chat_id: int, width: int, reply_func) -> None:
@@ -607,9 +563,7 @@ class TelegramBot:
             await reply_func("❌ Failed to set terminal width.")
 
     @authorized_callback
-    async def callback_resize(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
+    async def callback_resize(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle inline keyboard callback for resize."""
         query = update.callback_query
         await query.answer()
@@ -617,10 +571,7 @@ class TelegramBot:
         chat_id = update.effective_chat.id
 
         if not self._bridge.is_connected(chat_id):
-            await query.edit_message_text(
-                "Not connected to any session.\n"
-                "Use /connect first."
-            )
+            await query.edit_message_text("Not connected to any session.\nUse /connect first.")
             return
 
         # Extract width from callback_data (format: "resize:60" or "resize:reset")
@@ -642,9 +593,7 @@ class TelegramBot:
                 await query.edit_message_text("❌ Failed to set terminal width.")
 
     @authorized_only
-    async def cmd_new(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
+    async def cmd_new(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /new command - create new tmux session."""
         chat_id = update.effective_chat.id
 
@@ -652,9 +601,7 @@ class TelegramBot:
         current = self._bridge.get_connection(chat_id)
         if current:
             await update.message.reply_text(
-                f"Already connected to `{current}`.\n"
-                "Use /disconnect first.",
-                parse_mode="Markdown"
+                f"Already connected to `{current}`.\nUse /disconnect first.", parse_mode="Markdown"
             )
             return
 
@@ -670,24 +617,20 @@ class TelegramBot:
                     f"✅ Created and connected to `{pane_id}`\n\n"
                     "Terminal output will be streamed here.\n"
                     "Send text to input to the terminal.",
-                    parse_mode="Markdown"
+                    parse_mode="Markdown",
                 )
             else:
                 await update.message.reply_text(
-                    f"✅ Created session `{session_name}`\n"
-                    f"Use `/connect {pane_id}` to connect.",
-                    parse_mode="Markdown"
+                    f"✅ Created session `{session_name}`\nUse `/connect {pane_id}` to connect.",
+                    parse_mode="Markdown",
                 )
         else:
             await update.message.reply_text(
-                "❌ Failed to create tmux session.\n"
-                "Make sure tmux is installed and running."
+                "❌ Failed to create tmux session.\nMake sure tmux is installed and running."
             )
 
     @authorized_only
-    async def cmd_update(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
+    async def cmd_update(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /update command - update and restart the bot."""
         await update.message.reply_text("🔄 Updating TerminalBot...")
 
@@ -705,16 +648,14 @@ class TelegramBot:
         if result.returncode != 0:
             error_msg = result.stderr.strip() or result.stdout.strip()
             await update.message.reply_text(
-                f"❌ Git pull failed:\n```\n{error_msg}\n```",
-                parse_mode="Markdown"
+                f"❌ Git pull failed:\n```\n{error_msg}\n```", parse_mode="Markdown"
             )
             return
 
         # Show git pull output
         output = result.stdout.strip() or "Already up to date."
         await update.message.reply_text(
-            f"✅ Git pull:\n```\n{output}\n```\n\n🔄 Restarting...",
-            parse_mode="Markdown"
+            f"✅ Git pull:\n```\n{output}\n```\n\n🔄 Restarting...", parse_mode="Markdown"
         )
 
         # Give time for message to send
@@ -723,30 +664,29 @@ class TelegramBot:
         # Save chat_id for restart notification
         import json
         import shutil
+
         restart_file = os.path.join(project_root, ".restart_notify")
         with open(restart_file, "w") as f:
             json.dump({"chat_id": update.effective_chat.id}, f)
 
         # Restart using os.execv
         # Try to use 'uv run' if available to maintain consistency with deployment
-        uv_path = shutil.which('uv')
+        uv_path = shutil.which("uv")
         if uv_path:
             # Restart with uv run (same as deployment methods)
-            os.execv(uv_path, [uv_path, 'run', 'terminalbot'])
+            os.execv(uv_path, [uv_path, "run", "terminalbot"])
         else:
             # Fallback to direct python execution
             os.execv(sys.executable, [sys.executable] + sys.argv)
 
     @authorized_only
-    async def cmd_shutdown(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
+    async def cmd_shutdown(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /shutdown command - shutdown the bot."""
         # Create confirmation keyboard
         keyboard = [
             [
                 InlineKeyboardButton("✅ Yes, shutdown", callback_data="shutdown_confirm"),
-                InlineKeyboardButton("❌ Cancel", callback_data="shutdown_cancel")
+                InlineKeyboardButton("❌ Cancel", callback_data="shutdown_cancel"),
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -762,13 +702,11 @@ class TelegramBot:
             "- **Manual**: Bot will NOT restart. Use `uv run terminalbot` to restart.\n\n"
             "Are you sure you want to shutdown?",
             parse_mode="Markdown",
-            reply_markup=reply_markup
+            reply_markup=reply_markup,
         )
 
     @authorized_callback
-    async def callback_shutdown(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
+    async def callback_shutdown(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle shutdown confirmation callbacks."""
         query = update.callback_query
         await query.answer()
@@ -778,7 +716,7 @@ class TelegramBot:
                 "🛑 **Shutting down...**\n\n"
                 "The bot is shutting down now. "
                 "To restart, use the appropriate command on the server.",
-                parse_mode="Markdown"
+                parse_mode="Markdown",
             )
 
             # Give time for message to send
@@ -793,9 +731,7 @@ class TelegramBot:
             await query.edit_message_text("Shutdown cancelled.")
 
     @authorized_callback
-    async def callback_key(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
+    async def callback_key(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle inline keyboard callback for special keys."""
         query = update.callback_query
         await query.answer()
@@ -803,10 +739,7 @@ class TelegramBot:
         chat_id = update.effective_chat.id
 
         if not self._bridge.is_connected(chat_id):
-            await query.edit_message_text(
-                "Not connected to any session.\n"
-                "Use /connect first."
-            )
+            await query.edit_message_text("Not connected to any session.\nUse /connect first.")
             return
 
         # Extract key from callback_data (format: "key:up")
@@ -816,25 +749,21 @@ class TelegramBot:
         if key_name == "toggle_mode":
             new_mode = self._bridge.toggle_auto_enter(chat_id)
             await query.edit_message_text(
-                INVISIBLE_PLACEHOLDER,
-                reply_markup=self._get_keys_keyboard(new_mode)
+                INVISIBLE_PLACEHOLDER, reply_markup=self._get_keys_keyboard(new_mode)
             )
             return
 
         # Handle double Ctrl+C specially
         if key_name == "ctrl_cc":
-            success = (
-                self._bridge.send_special_key(chat_id, "C-c") and
-                self._bridge.send_special_key(chat_id, "C-c")
-            )
+            success = self._bridge.send_special_key(
+                chat_id, "C-c"
+            ) and self._bridge.send_special_key(chat_id, "C-c")
         else:
             tmux_key = SPECIAL_KEYS.get(key_name)
             success = tmux_key and self._bridge.send_special_key(chat_id, tmux_key)
 
         if not success:
-            await query.edit_message_text(
-                "❌ Failed to send key. Session may have closed."
-            )
+            await query.edit_message_text("❌ Failed to send key. Session may have closed.")
 
     @authorized_only
     async def handle_unknown_command(
@@ -855,22 +784,15 @@ class TelegramBot:
 
         text = update.message.text
         if not self._bridge.send_input(chat_id, text):
-            await update.message.reply_text(
-                "❌ Failed to send command. Session may have closed."
-            )
+            await update.message.reply_text("❌ Failed to send command. Session may have closed.")
 
     @authorized_only
-    async def handle_text(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
+    async def handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle text messages - forward to connected terminal."""
         chat_id = update.effective_chat.id
 
         if not self._bridge.is_connected(chat_id):
-            await update.message.reply_text(
-                "Not connected to any session.\n"
-                "Use /connect first."
-            )
+            await update.message.reply_text("Not connected to any session.\nUse /connect first.")
             return
 
         # Invalidate terminal message so next update creates new one below user's message
@@ -878,9 +800,7 @@ class TelegramBot:
 
         text = update.message.text
         if not self._bridge.send_input(chat_id, text):
-            await update.message.reply_text(
-                "❌ Failed to send input. Session may have closed."
-            )
+            await update.message.reply_text("❌ Failed to send input. Session may have closed.")
 
 
 def create_bot(
@@ -918,31 +838,17 @@ def create_bot(
     application.add_handler(CommandHandler("shutdown", bot.cmd_shutdown))
 
     # Callback handlers for inline keyboard
-    application.add_handler(
-        CallbackQueryHandler(bot.callback_connect, pattern=r"^connect:")
-    )
-    application.add_handler(
-        CallbackQueryHandler(bot.callback_delete, pattern=r"^delete_")
-    )
-    application.add_handler(
-        CallbackQueryHandler(bot.callback_key, pattern=r"^key:")
-    )
-    application.add_handler(
-        CallbackQueryHandler(bot.callback_resize, pattern=r"^resize:")
-    )
-    application.add_handler(
-        CallbackQueryHandler(bot.callback_shutdown, pattern=r"^shutdown_")
-    )
+    application.add_handler(CallbackQueryHandler(bot.callback_connect, pattern=r"^connect:"))
+    application.add_handler(CallbackQueryHandler(bot.callback_delete, pattern=r"^delete_"))
+    application.add_handler(CallbackQueryHandler(bot.callback_key, pattern=r"^key:"))
+    application.add_handler(CallbackQueryHandler(bot.callback_resize, pattern=r"^resize:"))
+    application.add_handler(CallbackQueryHandler(bot.callback_shutdown, pattern=r"^shutdown_"))
 
     # Text message handler
-    application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, bot.handle_text)
-    )
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.handle_text))
 
     # Unknown command handler - forward to terminal (e.g., /openspec)
     # Must be last to catch commands not handled above
-    application.add_handler(
-        MessageHandler(filters.COMMAND, bot.handle_unknown_command)
-    )
+    application.add_handler(MessageHandler(filters.COMMAND, bot.handle_unknown_command))
 
     return application
