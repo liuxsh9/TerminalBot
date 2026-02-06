@@ -34,6 +34,7 @@ BOT_COMMANDS = [
     BotCommand("start", "Start the bot"),
     BotCommand("keys", "Show control keys panel"),
     BotCommand("update", "Update and restart bot"),
+    BotCommand("shutdown", "Shutdown the bot"),
     BotCommand("help", "Show help message"),
 ]
 
@@ -736,6 +737,60 @@ class TelegramBot:
             # Fallback to direct python execution
             os.execv(sys.executable, [sys.executable] + sys.argv)
 
+    @authorized_only
+    async def cmd_shutdown(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle /shutdown command - shutdown the bot."""
+        # Create confirmation keyboard
+        keyboard = [
+            [
+                InlineKeyboardButton("✅ Yes, shutdown", callback_data="shutdown_confirm"),
+                InlineKeyboardButton("❌ Cancel", callback_data="shutdown_cancel")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(
+            "⚠️ **Shutdown Confirmation**\n\n"
+            "This will shut down the bot completely.\n\n"
+            "**Important:** After shutdown, you must manually restart the bot:\n"
+            "- **PM2**: `pm2 restart terminalbot`\n"
+            "- **systemd**: `systemctl --user start terminalbot`\n"
+            "- **launchd**: `launchctl start com.terminalbot`\n"
+            "- **Manual**: `uv run terminalbot`\n\n"
+            "Are you sure you want to shutdown?",
+            parse_mode="Markdown",
+            reply_markup=reply_markup
+        )
+
+    @authorized_callback
+    async def callback_shutdown(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle shutdown confirmation callbacks."""
+        query = update.callback_query
+        await query.answer()
+
+        if query.data == "shutdown_confirm":
+            await query.edit_message_text(
+                "🛑 **Shutting down...**\n\n"
+                "The bot is shutting down now. "
+                "To restart, use the appropriate command on the server.",
+                parse_mode="Markdown"
+            )
+
+            # Give time for message to send
+            await asyncio.sleep(1)
+
+            # Trigger shutdown by raising SystemExit
+            # This will be caught by the main loop's finally block for graceful cleanup
+            logger.info("Shutdown requested by user via /shutdown command")
+            raise SystemExit(0)
+
+        elif query.data == "shutdown_cancel":
+            await query.edit_message_text("Shutdown cancelled.")
+
     @authorized_callback
     async def callback_key(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -859,6 +914,7 @@ def create_bot(
     application.add_handler(CommandHandler("new", bot.cmd_new))
     application.add_handler(CommandHandler("refresh", bot.cmd_refresh))
     application.add_handler(CommandHandler("update", bot.cmd_update))
+    application.add_handler(CommandHandler("shutdown", bot.cmd_shutdown))
 
     # Callback handlers for inline keyboard
     application.add_handler(
@@ -872,6 +928,9 @@ def create_bot(
     )
     application.add_handler(
         CallbackQueryHandler(bot.callback_resize, pattern=r"^resize:")
+    )
+    application.add_handler(
+        CallbackQueryHandler(bot.callback_shutdown, pattern=r"^shutdown_")
     )
 
     # Text message handler

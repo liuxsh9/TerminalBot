@@ -177,7 +177,8 @@ async def run_bot(config: dict) -> None:
         # Keep running until interrupted
         while True:
             await asyncio.sleep(1)
-    except asyncio.CancelledError:
+    except (asyncio.CancelledError, SystemExit):
+        # Handle graceful shutdown (Ctrl+C or /shutdown command)
         pass
     finally:
         logger.info("Shutting down TerminalBot...")
