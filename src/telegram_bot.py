@@ -754,11 +754,12 @@ class TelegramBot:
         await update.message.reply_text(
             "⚠️ **Shutdown Confirmation**\n\n"
             "This will shut down the bot completely.\n\n"
-            "**Important:** After shutdown, you must manually restart the bot:\n"
-            "- **PM2**: `pm2 restart terminalbot`\n"
-            "- **systemd**: `systemctl --user start terminalbot`\n"
-            "- **launchd**: `launchctl start com.terminalbot`\n"
-            "- **Manual**: `uv run terminalbot`\n\n"
+            "**Important:** Restart behavior depends on your deployment:\n"
+            "- **PM2**: Bot will auto-restart in 5s. To prevent restart, first use /new or /connect "
+            "to open a terminal session, then run `pm2 stop terminalbot` in that session.\n"
+            "- **systemd**: Bot will NOT restart. Use `systemctl --user start terminalbot` to restart.\n"
+            "- **launchd**: Bot may auto-restart depending on config. Use `launchctl unload <plist>` to prevent.\n"
+            "- **Manual**: Bot will NOT restart. Use `uv run terminalbot` to restart.\n\n"
             "Are you sure you want to shutdown?",
             parse_mode="Markdown",
             reply_markup=reply_markup
