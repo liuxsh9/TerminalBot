@@ -1,0 +1,21 @@
+[Unit]
+Description=TerminalBot - Telegram bot for controlling tmux sessions
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/terminal-bot
+ExecStart=/usr/bin/env bash -c 'cd %h/terminal-bot && uv run terminalbot'
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Environment
+EnvironmentFile=%h/terminal-bot/.env
+
+# Resource limits
+MemoryMax=500M
+
+[Install]
+WantedBy=default.target

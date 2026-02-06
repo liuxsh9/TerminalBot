@@ -5,8 +5,10 @@ import asyncio
 import logging
 import os
 import sys
+import time
 
 from dotenv import load_dotenv
+from src.retry_policy import RetryPolicy, is_transient_error
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -52,7 +54,7 @@ def load_config() -> dict:
 
 
 async def run_bot(config: dict) -> None:
-    """Run the Telegram bot."""
+    """Run the Telegram bot with retry logic and sleep detection."""
     # Import here to avoid issues if dependencies not installed
     from src.telegram_bot import create_bot, BOT_COMMANDS
     from src.session_bridge import SessionBridge
@@ -71,34 +73,85 @@ async def run_bot(config: dict) -> None:
         session_bridge=session_bridge,
     )
 
-    logger.info("Starting TerminalBot...")
-    await application.initialize()
+    retry_policy = RetryPolicy()
 
-    # Register bot commands menu (post_init is not called with manual start)
-    await application.bot.set_my_commands(BOT_COMMANDS)
-    logger.info("Bot commands menu registered")
+    async def start_polling_with_retry():
+        """Start polling with automatic retry on failure."""
+        while True:
+            try:
+                logger.info("Starting TerminalBot...")
+                await application.initialize()
 
-    await application.start()
-    await application.updater.start_polling()
+                # Register bot commands menu
+                await application.bot.set_my_commands(BOT_COMMANDS)
+                logger.info("Bot commands menu registered")
 
-    # Check for restart notification
-    import json
-    restart_file = os.path.join(os.path.dirname(__file__), "..", ".restart_notify")
-    restart_file = os.path.abspath(restart_file)
-    if os.path.exists(restart_file):
-        try:
-            with open(restart_file) as f:
-                data = json.load(f)
-            os.remove(restart_file)
-            await application.bot.send_message(
-                chat_id=data["chat_id"],
-                text="✅ TerminalBot restarted successfully!"
-            )
-            logger.info(f"Sent restart notification to chat {data['chat_id']}")
-        except Exception as e:
-            logger.error(f"Failed to send restart notification: {e}")
+                await application.start()
+                await application.updater.start_polling()
 
+                # Check for restart notification
+                import json
+                restart_file = os.path.join(os.path.dirname(__file__), "..", ".restart_notify")
+                restart_file = os.path.abspath(restart_file)
+                if os.path.exists(restart_file):
+                    try:
+                        with open(restart_file) as f:
+                            data = json.load(f)
+                        os.remove(restart_file)
+                        await application.bot.send_message(
+                            chat_id=data["chat_id"],
+                            text="✅ TerminalBot restarted successfully!"
+                        )
+                        logger.info(f"Sent restart notification to chat {data['chat_id']}")
+                    except Exception as e:
+                        logger.error(f"Failed to send restart notification: {e}")
+
+                logger.info("Bot is running")
+                return  # Successfully started
+
+            except Exception as e:
+                if is_transient_error(e):
+                    logger.warning(f"Transient error during bot start: {e}")
+                    # Retry with backoff
+                    await asyncio.sleep(retry_policy.base_delay)
+                else:
+                    logger.error(f"Fatal error during bot start: {e}")
+                    raise
+
+    async def sleep_detection_loop():
+        """Monitor for system sleep and trigger reconnection."""
+        last_time = time.time()
+        SLEEP_THRESHOLD = 60  # seconds
+
+        while True:
+            await asyncio.sleep(10)  # Check every 10 seconds
+
+            current_time = time.time()
+            elapsed = current_time - last_time
+
+            if elapsed > SLEEP_THRESHOLD:
+                logger.warning(
+                    f"System sleep detected (time jump: {elapsed:.1f}s). "
+                    "Triggering reconnection..."
+                )
+                # Stop and restart polling to refresh connections
+                try:
+                    await application.updater.stop()
+                    await application.updater.start_polling()
+                    logger.info("Reconnection successful after sleep")
+                except Exception as e:
+                    logger.error(f"Failed to reconnect after sleep: {e}")
+
+            last_time = current_time
+
+    sleep_task = None
     try:
+        # Start bot with retry logic
+        await start_polling_with_retry()
+
+        # Start sleep detection in background
+        sleep_task = asyncio.create_task(sleep_detection_loop())
+
         # Keep running until interrupted
         while True:
             await asyncio.sleep(1)
@@ -106,6 +159,15 @@ async def run_bot(config: dict) -> None:
         pass
     finally:
         logger.info("Shutting down TerminalBot...")
+
+        # Cancel sleep detection task
+        if sleep_task and not sleep_task.done():
+            sleep_task.cancel()
+            try:
+                await sleep_task
+            except asyncio.CancelledError:
+                pass
+
         await session_bridge.stop_all()
         await application.updater.stop()
         await application.stop()

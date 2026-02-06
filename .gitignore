@@ -32,3 +32,6 @@ cc_test/
 
 # Restart notification temp file
 .restart_notify
+
+# Logs
+logs/
