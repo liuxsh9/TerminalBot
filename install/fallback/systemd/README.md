@@ -60,6 +60,8 @@ systemctl --user restart terminalbot
 systemctl --user disable terminalbot
 ```
 
+**Note:** The `/shutdown` command in the bot will cleanly exit without triggering an automatic restart (systemd only restarts on failures). Use `systemctl --user start terminalbot` to restart the bot after shutdown.
+
 ### Logs
 
 ```bash

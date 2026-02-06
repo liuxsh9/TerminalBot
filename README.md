@@ -102,8 +102,11 @@ Then in Telegram:
 | `/resize <width>` | Set terminal width (e.g., `/resize 60`) |
 | `/refresh` | Refresh terminal display |
 | `/disconnect` | Disconnect from session |
+| `/delete` | Delete a tmux session (interactive) |
 | `/start` | Welcome message |
 | `/keys` | Show control keys panel |
+| `/update` | Update bot from git and restart |
+| `/shutdown` | Shutdown the bot (requires manual restart) |
 | `/help` | Show detailed help |
 
 ## Control Keys

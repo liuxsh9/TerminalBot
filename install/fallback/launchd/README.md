@@ -51,6 +51,8 @@ launchctl unload ~/Library/LaunchAgents/com.terminalbot.plist
 launchctl load ~/Library/LaunchAgents/com.terminalbot.plist
 ```
 
+**Note:** The `/shutdown` command may trigger an automatic restart depending on the KeepAlive configuration. To prevent restart, use `launchctl unload ~/Library/LaunchAgents/com.terminalbot.plist` before running `/shutdown`, or use `/new` or `/connect` to open a terminal and run `launchctl stop com.terminalbot`.
+
 ### Logs
 
 ```bash

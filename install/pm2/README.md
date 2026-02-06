@@ -75,6 +75,8 @@ pm2 stop terminalbot
 pm2 delete terminalbot
 ```
 
+**Note:** The `/shutdown` command in the bot will trigger a restart after ~5s due to PM2's auto-restart feature. To truly stop the bot, use `/new` or `/connect` to open a terminal session, then run `pm2 stop terminalbot` from within that session.
+
 ## Log Files
 
 Logs are stored in:
